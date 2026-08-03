@@ -9,6 +9,8 @@ __all__ = [
     "MasterEquationError",
     "ProbabilityConservationError",
     "CovarianceClosureError",
+    "NumericalModelError",
+    "ReductionError",
 ]
 
 
@@ -39,3 +41,11 @@ class ProbabilityConservationError(FPGenError):
 
 class CovarianceClosureError(FPGenError):
     """The Hermitian second-moment dynamics is not symbolically closed."""
+
+
+class NumericalModelError(FPGenError):
+    """A symbolic dynamics object cannot satisfy the numerical API contract."""
+
+
+class ReductionError(FPGenError):
+    """A requested structural reduction is invalid or cannot be materialized."""

@@ -404,13 +404,29 @@ class LangevinEquation:
         """Build the closed Hermitian covariance flow and real Jacobian.
 
         The coordinate ordering is diagonal entries in declared mode order,
-        followed by lexicographically ordered upper-triangle real parts and
+        followed by upper-triangle real parts in declared index-pair order and
         then imaginary parts.  Raises ``CovarianceClosureError`` when the
         normal covariance is not closed at second order.
         """
         from fpgen.covariance import HermitianCovarianceJacobian
 
         return HermitianCovarianceJacobian.from_langevin(self)
+
+    def to_covariance_dynamics(self, *, parameters=None, parameter_domains=None):
+        """Build a machine-safe closed Hermitian covariance dynamics object.
+
+        ``parameters`` fixes the flat numerical parameter order.  It is
+        optional for symbolic inspection, but required before exporting a
+        numerical model specification.  Parameters without SymPy real-domain
+        assumptions require an explicit ``parameter_domains`` override.
+        """
+        from fpgen.covariance import CovarianceDynamics
+
+        return CovarianceDynamics.from_langevin(
+            self,
+            parameters=parameters,
+            parameter_domains=parameter_domains,
+        )
 
     # ------------------------------------------------------------------
     def __repr__(self) -> str:

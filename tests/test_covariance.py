@@ -52,7 +52,7 @@ def test_van_der_pol_covariance_jacobian_matches_closed_equations():
     assert (result.jacobian - expected).applyfunc(sp.simplify) == sp.zeros(4)
 
 
-def test_vectorization_uses_mode_order_then_lexicographic_pairs():
+def test_vectorization_uses_declared_index_upper_triangle_order():
     c, a, b = boson_modes("c", "a", "b")
     master = MasterEquation(modes=[c, a, b])
     result = (
@@ -65,14 +65,26 @@ def test_vectorization_uses_mode_order_then_lexicographic_pairs():
         "R_{cc}",
         "R_{aa}",
         "R_{bb}",
+        r"\operatorname{Re}(R_{ca})",
+        r"\operatorname{Re}(R_{cb})",
         r"\operatorname{Re}(R_{ab})",
-        r"\operatorname{Re}(R_{ac})",
-        r"\operatorname{Re}(R_{bc})",
+        r"\operatorname{Im}(R_{ca})",
+        r"\operatorname{Im}(R_{cb})",
         r"\operatorname{Im}(R_{ab})",
-        r"\operatorname{Im}(R_{ac})",
-        r"\operatorname{Im}(R_{bc})",
     )
-    assert result.pair_order == (("a", "b"), ("a", "c"), ("b", "c"))
+    assert result.pair_indices == ((0, 1), (0, 2), (1, 2))
+    assert result.pair_order == (("c", "a"), ("c", "b"), ("a", "b"))
+    assert tuple(item.id for item in result.state_spec) == (
+        "r_diag_0",
+        "r_diag_1",
+        "r_diag_2",
+        "r_re_0_1",
+        "r_re_0_2",
+        "r_re_1_2",
+        "r_im_0_1",
+        "r_im_0_2",
+        "r_im_1_2",
+    )
     assert result.jacobian == sp.zeros(9)
 
 

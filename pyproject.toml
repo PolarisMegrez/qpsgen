@@ -6,7 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "fpgen"
 dynamic = ["version"]
 description = "Structured Kramers–Moyal / Fokker–Planck / Langevin toolkit (Wigner, P, Q, positive-P)."
-readme = "README.md"
 license = { text = "MIT" }
 authors = [ { name = "Yu Xue-Hao" }, { name = "Qiao Cong-Feng" } ]
 keywords = ["Fokker-Planck", "Kramers-Moyal", "Langevin", "Wigner", "positive-P", "phase-space", "quantum", "Cahill-Glauber"]
@@ -19,6 +18,7 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "sympy>=1.12,<2",
+    "numpy>=1.24,<3",
 ]
 
 [project.optional-dependencies]

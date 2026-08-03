@@ -20,16 +20,24 @@ internal implementation detail.  Version 0.2.0 removed the legacy
 ``opr2fp``/``to_fp_normal_form`` string-parsing API.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from fpgen.derive import derive_kramers_moyal
-from fpgen.covariance import HermitianCovarianceJacobian
+from fpgen.covariance import (
+    CovarianceDynamics,
+    HermitianCovarianceJacobian,
+    LinearReductionCandidate,
+    LinearReductionPlan,
+    MaterializedReduction,
+)
 from fpgen.errors import (
     CovarianceClosureError,
     FPGenError,
     MasterEquationError,
     ModeError,
     ProbabilityConservationError,
+    NumericalModelError,
+    ReductionError,
     RepresentationError,
 )
 from fpgen.master import LindbladChannel, LiouvillianTerm, MasterEquation
@@ -38,6 +46,16 @@ from fpgen.results import (
     FokkerPlanckEquation,
     KramersMoyalSeries,
     LangevinEquation,
+)
+from fpgen.numerical import (
+    MODEL_SCHEMA_VERSION,
+    STATE_LAYOUT_VERSION,
+    DerivationProvenance,
+    MomentDynamicsSpec,
+    NumericalModelSpec,
+    ParameterSpec,
+    SparsityPattern,
+    StateVariableSpec,
 )
 
 __all__ = [
@@ -50,11 +68,25 @@ __all__ = [
     "KramersMoyalSeries",
     "FokkerPlanckEquation",
     "LangevinEquation",
+    "CovarianceDynamics",
     "HermitianCovarianceJacobian",
+    "LinearReductionCandidate",
+    "LinearReductionPlan",
+    "MaterializedReduction",
+    "MODEL_SCHEMA_VERSION",
+    "STATE_LAYOUT_VERSION",
+    "StateVariableSpec",
+    "ParameterSpec",
+    "SparsityPattern",
+    "DerivationProvenance",
+    "NumericalModelSpec",
+    "MomentDynamicsSpec",
     "FPGenError",
     "RepresentationError",
     "ModeError",
     "MasterEquationError",
     "ProbabilityConservationError",
     "CovarianceClosureError",
+    "NumericalModelError",
+    "ReductionError",
 ]
