@@ -8,6 +8,7 @@ __all__ = [
     "ModeError",
     "MasterEquationError",
     "ProbabilityConservationError",
+    "CovarianceClosureError",
 ]
 
 
@@ -34,3 +35,7 @@ class ProbabilityConservationError(FPGenError):
     master equation does not conserve probability (the Fokker–Planck
     equation contains a zeroth-order term).
     """
+
+
+class CovarianceClosureError(FPGenError):
+    """The Hermitian second-moment dynamics is not symbolically closed."""

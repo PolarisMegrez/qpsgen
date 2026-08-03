@@ -79,9 +79,9 @@ langevin = fpe.to_langevin()
 - 模式顺序由 `MasterEquation(modes=...)` 明确指定，不依据表达式或字母排序猜测。
 - 实现建立在当前未提交工作树之上，不回退现有修改；旧 Mathematica notebook 仅作为公式参考，不作为新版 API 的兼容目标。
 
-## 后续 Jacobian 支持
+## Hermitian 协方差 Jacobian（已实现）
 
 - 定义 Hermitian 协方差矩阵 `R_ij = <alpha_i alpha_j^*>`，并由 Wigner/P/Q 的物理 Hamiltonian 与直接 FPE 扩散块构造闭合方程 `F(R) = -i(H(R)R - R H(R)^dagger) + D(R)`。
 - Hermitian 实坐标向量固定为：先按 mode 顺序排列全部对角元；再按 mode 字典序排列上三角非对角元实部；最后按相同字典序排列上三角非对角元虚部。Jacobian 定义为该顺序下 `vectorize(F).jacobian(vectorize(R))`。
 - 第一版闭合映射仅接受常数以及单个双线性因子 `alpha_j abar_i -> R_ji`；遇到更高阶矩或无法唯一配对的单项式时明确报告 closure error，不静默采用 Gaussian/Wick 分解。
-- 若 anomalous Hamiltonian 或 anomalous diffusion 非零，仅靠 Hermitian `R` 不闭合；此时拒绝生成该 Jacobian，并提示未来使用包含正常与反常二阶矩的增广协方差系统。
+- 若 anomalous Hamiltonian 非零，Hermitian `R` 的漂移会耦合反常二阶矩，此时拒绝生成该 Jacobian，并提示未来使用包含正常与反常二阶矩的增广协方差系统。anomalous diffusion 不直接进入正常协方差方程，因此不单独阻止 `R`-Jacobian，但其反常矩动力学不包含在该结果中。

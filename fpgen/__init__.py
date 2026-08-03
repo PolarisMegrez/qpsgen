@@ -23,7 +23,9 @@ internal implementation detail.  Version 0.2.0 removed the legacy
 __version__ = "0.2.0"
 
 from fpgen.derive import derive_kramers_moyal
+from fpgen.covariance import HermitianCovarianceJacobian
 from fpgen.errors import (
+    CovarianceClosureError,
     FPGenError,
     MasterEquationError,
     ModeError,
@@ -48,9 +50,11 @@ __all__ = [
     "KramersMoyalSeries",
     "FokkerPlanckEquation",
     "LangevinEquation",
+    "HermitianCovarianceJacobian",
     "FPGenError",
     "RepresentationError",
     "ModeError",
     "MasterEquationError",
     "ProbabilityConservationError",
+    "CovarianceClosureError",
 ]

@@ -118,6 +118,11 @@ lan.physical_hamiltonian   # Cahill–Glauber: upper-left N×N block of H_eff
 lan.anomalous_hamiltonian  # Cahill–Glauber: upper-right N×N block of H_eff
 lan.hamiltonian            # H_eff(z) with A = -i H_eff z, or None
 lan.diagnostics            # why H_eff is None, when it is
+jac = lan.to_covariance_jacobian()
+jac.coordinates            # Hermitian real-vector coordinate order
+jac.flow_matrix            # dR/dt = -i(HR - RH†) + D
+jac.flow_vector            # vectorized covariance flow
+jac.jacobian               # derivative of flow_vector by coordinates
 ```
 
 - If the zero-order KM coefficient is nonzero (master equation does not
@@ -136,6 +141,20 @@ lan.diagnostics            # why H_eff is None, when it is
 
 All result objects offer structured attributes, readable `repr`,
 `to_latex()`, and notebook `_repr_latex_`.
+
+### Hermitian covariance Jacobian
+
+For Wigner/P/Q models whose physical drift closes on the normal Hermitian
+covariance `R_ij = <alpha_i alpha_j*>`, `to_covariance_jacobian()` replaces
+each bilinear `alpha_j*abar_i` by `R_ji` and constructs
+`dR/dt = -I*(H(R)*R - R*H(R).dagger()) + D(R)`. It never applies an implicit
+Gaussian/Wick closure to higher moments.
+
+The real vector order is fixed: diagonal entries in declared mode order,
+then upper-triangle real parts in lexicographic mode-pair order, then the
+corresponding imaginary parts. Positive-P and systems with a nonzero
+anomalous Hamiltonian block require a larger covariance state and raise
+`CovarianceClosureError` in this calculator.
 
 ## Example: Kerr oscillator in positive-P
 

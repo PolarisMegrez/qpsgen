@@ -400,6 +400,18 @@ class LangevinEquation:
         n = len(self.variables) // 2
         return self.hamiltonian[:n, n:].applyfunc(sp.simplify)
 
+    def to_covariance_jacobian(self):
+        """Build the closed Hermitian covariance flow and real Jacobian.
+
+        The coordinate ordering is diagonal entries in declared mode order,
+        followed by lexicographically ordered upper-triangle real parts and
+        then imaginary parts.  Raises ``CovarianceClosureError`` when the
+        normal covariance is not closed at second order.
+        """
+        from fpgen.covariance import HermitianCovarianceJacobian
+
+        return HermitianCovarianceJacobian.from_langevin(self)
+
     # ------------------------------------------------------------------
     def __repr__(self) -> str:
         d = len(self.variables)
@@ -529,6 +541,8 @@ def _extract_hamiltonian(
             )
             continue
         for exp, coeff in poly.terms():
+            if sp.simplify(coeff) == 0:
+                continue
             degree = sum(exp)
             if degree == 0:
                 ok = False
