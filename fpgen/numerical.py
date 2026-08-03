@@ -21,6 +21,7 @@ from fpgen.errors import NumericalModelError
 __all__ = [
     "MODEL_SCHEMA_VERSION",
     "STATE_LAYOUT_VERSION",
+    "AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION",
     "StateVariableSpec",
     "ParameterSpec",
     "SparsityPattern",
@@ -32,6 +33,9 @@ __all__ = [
 
 MODEL_SCHEMA_VERSION = "1.0"
 STATE_LAYOUT_VERSION = "hermitian-declared-index-v1"
+AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION = (
+    "normal-anomalous-second-moment-declared-index-v1"
+)
 
 
 @dataclass(frozen=True)

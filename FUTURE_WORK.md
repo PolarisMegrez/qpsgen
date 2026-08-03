@@ -1,65 +1,52 @@
 # fpgen 后续工作
 
-本文是项目唯一的规划文档。当前可执行示例见 `example_local.ipynb`，公共接口以
-`fpgen.__all__`、对象 docstring 和测试为准。
+本文只记录尚未完成的符号推导与下游接口工作。`fpgen` 的公开示例止于动力学对象、
+Jacobian 和符号约化方程；定点搜索、延拓、分岔判定和 GPU 执行属于 `qphase`。
 
 ## 当前基线
 
-- 结构化主方程可推导 Wigner、P、Q 和 positive-P 的完整 Kramers--Moyal series。
-- 二阶 flux 截断可生成 Fokker--Planck 和增广 Itô Langevin 对象。
-- Wigner/P/Q 在严格双线性闭合条件下可生成 Hermitian 正常协方差动力学。
-- 实状态按 mode 声明索引排序，并具有版本化布局、显式参数顺序和推导来源记录。
-- `MomentDynamicsSpec` 可生成 metadata-only JSON manifest 和 float64 NumPy 参考模型。
-- 数值模型提供 state/parameter Jacobian、JVP/VJP 和按需混合方向导数。
-- 线性消元可联合枚举变量/方程分块，记录稀疏性和代价，并在正则分支上生成
-  fraction-free 标量残差、分母、清除因子和重根条件。
+- 支持 Wigner、P、Q 和 positive-P 表象的完整 Kramers--Moyal series。
+- 在 flux 形式下进行二阶截断，并生成 Fokker--Planck 与增广 Itô Langevin 对象。
+- 直接从 FPE 扩散矩阵给出正常关联 `D` 和反常关联 `M`。
+- 对满足严格双线性闭合的 Wigner/P/Q 系统生成 Hermitian 正常二阶矩动力学、
+  实向量化状态及 Jacobian。
+- 对线性漂移和常数扩散生成包含正常矩 `R` 与反常矩 `C` 的精确增广二阶矩动力学，
+  已覆盖简并参量振荡器。
+- 支持仿射平衡方程块的符号消元，并生成真正的约化动力学
+  `dot(q)=G(q;p)=P(q;p)/Q(q;p)`、正则条件与重根条件。
+- `MomentDynamicsSpec` 提供版本化状态/参数布局、推导来源、稀疏结构、指纹及 NumPy
+  参考实现，供 `qphase` 等下游项目验证和接入。
 
-## 优先事项
+## 后续优先事项
 
-### 1. 与 qphase 联调当前规格
+### 1. 完善增广二阶矩闭合
 
-先用 2-mode VDP、Kerr、cross-Kerr 和 3-mode Kerr 验证：
+- 为 positive-P 增加 alpha/beta 独立二阶矩状态，并在数值边界明确拆分实部和虚部。
+- 评估非线性反常 Hamiltonian 的可闭合模型；不能精确闭合时必须显式拒绝。
+- 如引入 Gaussian/Wick 等近似闭合，必须使用独立 API、明确命名，并写入
+  provenance，不能隐式启用。
 
-- batch `rhs(x, p)`、state/parameter Jacobian 与 qphase 数值模型逐点一致；
-- manifest fingerprint 能用于缓存和结果追溯；
-- 消元候选排序在实际模型上选择低代价、条件良好的分块；
-- qphase 结果使用 `coverage=heuristic|continuation|algebraic|interval_certified`，
-  不把有限预算内未找到候选解释为不存在。
+### 2. 稳定 qphase 交接规格
 
-根据联调反馈再冻结 schema。冻结前不增加跨语言表达式 DAG。
+- 用 two-mode VDP、Kerr、cross-Kerr、three-mode Kerr 和线性增广 DPO 逐点核对
+  RHS、state/parameter Jacobian、JVP/VJP 与批处理行为。
+- 根据实际接入反馈冻结 schema；冻结前不引入跨语言表达式 DAG。
+- 明确 qphase 返回结果的覆盖等级，避免把有限预算内未找到解解释为不存在解。
 
-### 2. 扩展二阶矩状态
+### 3. 提高符号消元的可扩展性
 
-当前 Hermitian 正常协方差在反常 Hamiltonian 非零时会明确拒绝闭合。后续需要：
+- 为三模及更大系统增加结构剪枝，减少变量/方程分块的组合枚举成本。
+- 提供不展开大行列式和大有理式的凝聚表示与符号秩条件。
+- 区分平衡点重根、零特征值缺陷和一般 Jacobian exceptional point；当前重根 API
+  只覆盖正则标量约化分支。
 
-- 为简并参量振荡器加入正常与反常二阶矩的增广状态；
-- 为 positive-P 加入 alpha/beta 独立矩，并在数值边界拆分实部和虚部；
-- 让所有矩动力学共享 `state_spec`、`parameter_spec`、`rhs`、方向导数和
-  `MomentDynamicsSpec`，但保留不同的布局版本与闭合来源。
+### 4. 评估 Langevin 模型规格
 
-不得隐式采用 Gaussian/Wick 分解；任何近似闭合都必须显式命名并写入 provenance。
+待 qphase 的 SDE adapter 契约明确后，再决定是否增加 `LangevinModelSpec`。该规格至少
+需要记录增广状态、漂移、真实独立噪声因子、dtype，以及 FPE 复对称扩散、正常关联、
+反常关联和具体噪声实现之间的区别。
 
-### 3. 增加 Langevin 数值规格
-
-只有在 qphase 的 SDE adapter 契约确定后再实现 `LangevinModelSpec`。它至少需要：
-
-- 增广状态、漂移、真实独立噪声 factor 和 dtype；
-- 明确区分 FPE 的复对称扩散、正常关联、反常关联及具体噪声实现；
-- 标记 `drift = A(z,p)z` 分解的有效性，常数驱动或非唯一分解时拒绝 Cayley 生成；
-- 先生成 NumPy Euler--Maruyama 参考能力，再由 qphase 负责 CuPy/CUDA、RNG、
-  积分器融合、缓存和运行时调度。
-
-fpgen 不直接生成依赖 qphase 运行时的 fused CUDA kernel，也不引入 JAX 作为首选
-运行时。
-
-### 4. 提高消元与高阶判据的可扩展性
-
-- 在 3-mode 及更大模型上评估变量/方程全分块枚举的组合成本，必要时增加结构剪枝；
-- 增加不展开 determinant 的符号秩条件和可供后端装配的凝聚求解规格；
-- 对无法标量消元的模型，保留 exact RHS 和混合方向收缩，由 qphase 实现 bordered
-  Lyapunov--Schmidt 系统、伪弧长延拓和任意精度复核；
-- 明确区分 `equilibrium_multiplicity`、`zero_eigenvalue_defect` 和一般 Jacobian
-  exceptional point。第一目标仍是单零空间下的平衡点高重根。
+`fpgen` 不负责 qphase 的积分器、随机数生成、CUDA 算子融合、缓存或运行时调度。
 
 ## 提交前验证
 
@@ -68,5 +55,5 @@ python -m pytest tests -q
 python -m compileall -q fpgen tests
 ```
 
-涉及 notebook 展示或公共 API 时，还应完整执行 `example_local.ipynb`，并验证生成的
-NumPy 模型在单样本和前导 batch 维下与 SymPy 表达式一致。
+涉及 notebook 或公开 API 时，还应从空命名空间顺序执行 `example.ipynb` 与
+`example_local.ipynb` 的全部代码单元。

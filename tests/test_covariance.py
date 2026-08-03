@@ -4,6 +4,7 @@ import sympy as sp
 import pytest
 
 from fpgen import (
+    AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION,
     CovarianceClosureError,
     LindbladChannel,
     MasterEquation,
@@ -113,6 +114,33 @@ def test_anomalous_hamiltonian_requires_augmented_covariance():
     ) == sp.zeros(2, 1)
     with pytest.raises(CovarianceClosureError, match="anomalous Hamiltonian"):
         langevin.to_covariance_jacobian()
+
+    augmented = langevin.to_augmented_second_moment_dynamics(
+        parameters=(omega, epsilon, kappa)
+    )
+    R_aa, re_C_aa, im_C_aa = augmented.coordinates
+    assert augmented.state_layout_version == AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION
+    assert tuple(item.id for item in augmented.state_spec) == (
+        "r_diag_0", "c_re_0_0", "c_im_0_0",
+    )
+    expected_flow = sp.Matrix([
+        -kappa * R_aa - 2 * epsilon * im_C_aa + kappa / 2,
+        -kappa * re_C_aa + 2 * omega * im_C_aa,
+        -2 * epsilon * R_aa - 2 * omega * re_C_aa - kappa * im_C_aa,
+    ])
+    assert (augmented.rhs - expected_flow).applyfunc(sp.simplify) == sp.zeros(3, 1)
+    expected_jacobian = sp.Matrix([
+        [-kappa, 0, -2 * epsilon],
+        [0, -kappa, 2 * omega],
+        [-2 * epsilon, -2 * omega, -kappa],
+    ])
+    assert augmented.jacobian() == expected_jacobian
+
+    reduced = augmented.linear_reduce(
+        order_parameters=["r_diag_0"]
+    ).materialize()
+    assert sp.Poly(reduced.numerators[0], R_aa).degree() == 1
+    assert sp.factor(reduced.regularity_determinant) == kappa**2 + 4 * omega**2
 
 
 def test_positive_p_has_no_hermitian_partner_covariance():

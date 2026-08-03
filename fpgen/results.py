@@ -428,6 +428,22 @@ class LangevinEquation:
             parameter_domains=parameter_domains,
         )
 
+    def to_augmented_second_moment_dynamics(
+        self, *, parameters, parameter_domains=None
+    ):
+        """Build exact normal/anomalous second moments for a linear drift.
+
+        This closes the covariance dynamics of parametric linear systems whose
+        augmented Hamiltonian and FPE diffusion are state independent.
+        """
+        from fpgen.covariance import AugmentedSecondMomentDynamics
+
+        return AugmentedSecondMomentDynamics.from_langevin(
+            self,
+            parameters=parameters,
+            parameter_domains=parameter_domains,
+        )
+
     # ------------------------------------------------------------------
     def __repr__(self) -> str:
         d = len(self.variables)

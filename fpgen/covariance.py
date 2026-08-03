@@ -1,4 +1,4 @@
-"""Closed Hermitian covariance dynamics and structural reductions.
+"""Closed second-moment dynamics and structural reductions.
 
 For a c-number Langevin equation ``dot(alpha) = -I H alpha + xi``, the
 normal covariance ``R_ij = <alpha_i alpha_j^*>`` obeys
@@ -7,6 +7,9 @@ normal covariance ``R_ij = <alpha_i alpha_j^*>`` obeys
 
 when every phase-space dependence in ``H`` and ``D`` is constant or one
 bilinear ``alpha_j abar_i``.  No Gaussian/Wick closure is applied implicitly.
+
+Linear augmented drifts can additionally be closed on the combined normal and
+anomalous moments ``R=<alpha alpha^dagger>`` and ``C=<alpha alpha^T>``.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from fpgen.errors import (
     ReductionError,
 )
 from fpgen.numerical import (
+    AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION,
     MODEL_SCHEMA_VERSION,
     STATE_LAYOUT_VERSION,
     DerivationProvenance,
@@ -36,6 +40,7 @@ from fpgen.numerical import (
 
 __all__ = [
     "CovarianceDynamics",
+    "AugmentedSecondMomentDynamics",
     "HermitianCovarianceJacobian",
     "LinearReductionCandidate",
     "LinearReductionPlan",
@@ -102,6 +107,46 @@ def _hermitian_state(mode_names: tuple[str, ...]):
 
     pair_order = tuple((mode_names[i], mode_names[j]) for i, j in pair_indices)
     return R, tuple(specs), pair_indices, pair_order
+
+
+def _augmented_second_moment_state(mode_names: tuple[str, ...]):
+    """Build ``S=<z z^T>`` from normal ``R`` and anomalous ``C`` moments."""
+    R, normal_specs, pair_indices, pair_order = _hermitian_state(mode_names)
+    n = len(mode_names)
+    symmetric_indices = tuple(
+        (i, j) for i in range(n) for j in range(i, n)
+    )
+    specs = list(normal_specs)
+    real_anomalous = []
+    imag_anomalous = []
+    for kind, prefix, latex_kind, target in (
+        ("anomalous_re", "c_re", "Re", real_anomalous),
+        ("anomalous_im", "c_im", "Im", imag_anomalous),
+    ):
+        for i, j in symmetric_indices:
+            index = len(specs)
+            left, right = mode_names[i], mode_names[j]
+            item = StateVariableSpec(
+                id=f"{prefix}_{i}_{j}",
+                index=index,
+                symbol=sp.Symbol(f"x{index}", real=True),
+                latex_name=rf"\operatorname{{{latex_kind}}}(C_{{{left}{right}}})",
+                kind=kind,
+                matrix_index=(i, j),
+                mode_names=(left, right),
+            )
+            specs.append(item)
+            target.append(item)
+
+    C = sp.zeros(n)
+    for (i, j), real_item, imag_item in zip(
+        symmetric_indices, real_anomalous, imag_anomalous, strict=True
+    ):
+        value = real_item.symbol + sp.I * imag_item.symbol
+        C[i, j] = value
+        C[j, i] = value
+    S = C.row_join(R).col_join(R.T.row_join(C.conjugate()))
+    return S, tuple(specs), pair_indices, pair_order, symmetric_indices
 
 
 def _close_bilinears(
@@ -674,6 +719,140 @@ class CovarianceDynamics:
                 )
             candidate = matches[0]
         return LinearReductionPlan.from_candidate(self, candidate)
+
+
+class AugmentedSecondMomentDynamics(CovarianceDynamics):
+    """Exact normal/anomalous second moments for a linear augmented drift."""
+
+    @classmethod
+    def from_langevin(
+        cls,
+        langevin,
+        *,
+        parameters,
+        parameter_domains=None,
+    ) -> AugmentedSecondMomentDynamics:
+        if langevin.representation == "positive-p":
+            raise CovarianceClosureError(
+                "Augmented conjugate moments require Wigner, P, or Q variables."
+            )
+        if langevin.hamiltonian is None:
+            raise CovarianceClosureError(
+                "The augmented drift has no Hamiltonian factorization."
+            )
+        master = getattr(langevin.fokker_planck, "master", None)
+        if master is None:
+            raise CovarianceClosureError(
+                "Mode names are unavailable because the master equation was not retained."
+            )
+        phase_variables = set(langevin.variables)
+        H = sp.Matrix(langevin.hamiltonian)
+        G = sp.Matrix(langevin.diffusion)
+        phase_dependence = set().union(
+            *(entry.free_symbols for entry in tuple(H) + tuple(G))
+        ) & phase_variables
+        if phase_dependence:
+            raise CovarianceClosureError(
+                "Augmented second moments currently require state-independent "
+                f"H_aug and G_aug; found {sorted(map(str, phase_dependence))}."
+            )
+
+        parameter_spec = _parameter_specs(parameters, parameter_domains)
+        H = _enforce_real_parameter_domains(H, parameter_spec)
+        G = _enforce_real_parameter_domains(G, parameter_spec)
+        modes = tuple(master.modes)
+        n = len(modes)
+        if H.shape != (2 * n, 2 * n) or G.shape != (2 * n, 2 * n):
+            raise CovarianceClosureError(
+                "The augmented Hamiltonian and diffusion dimensions do not match "
+                "the declared modes."
+            )
+        S, state_spec, pair_indices, pair_order, symmetric_indices = (
+            _augmented_second_moment_state(modes)
+        )
+        rhs_matrix = _simplified_matrix(
+            -sp.I * (H * S + S * H.T) + G
+        )
+        rhs_matrix = _enforce_real_parameter_domains(rhs_matrix, parameter_spec)
+        if _simplified_matrix(rhs_matrix - rhs_matrix.T) != sp.zeros(2 * n):
+            raise CovarianceClosureError(
+                "The augmented second-moment flow is not complex symmetric."
+            )
+        C_flow = rhs_matrix[:n, :n]
+        R_flow = rhs_matrix[:n, n:]
+        if _simplified_matrix(R_flow - R_flow.conjugate().T) != sp.zeros(n):
+            raise CovarianceClosureError(
+                "The normal block of the augmented moment flow is not Hermitian."
+            )
+        if _simplified_matrix(C_flow - C_flow.T) != sp.zeros(n):
+            raise CovarianceClosureError(
+                "The anomalous block of the augmented moment flow is not symmetric."
+            )
+
+        normal_diagonal = tuple(_real_part(R_flow[i, i]) for i in range(n))
+        normal_real = tuple(_real_part(R_flow[i, j]) for i, j in pair_indices)
+        normal_imag = tuple(_imag_part(R_flow[i, j]) for i, j in pair_indices)
+        anomalous_real = tuple(
+            _real_part(C_flow[i, j]) for i, j in symmetric_indices
+        )
+        anomalous_imag = tuple(
+            _imag_part(C_flow[i, j]) for i, j in symmetric_indices
+        )
+        rhs = sp.Matrix(
+            normal_diagonal
+            + normal_real
+            + normal_imag
+            + anomalous_real
+            + anomalous_imag
+        )
+
+        state_symbols = {item.symbol for item in state_spec}
+        free = set().union(
+            *(entry.free_symbols for entry in tuple(rhs) + tuple(H) + tuple(G))
+        ) - state_symbols
+        declared = {item.symbol for item in parameter_spec}
+        if free != declared:
+            raise NumericalModelError(
+                "Explicit parameter order does not match augmented moment symbols: "
+                f"expected {sorted(map(str, free))}, got {sorted(map(str, declared))}."
+            )
+
+        result = cls(
+            representation=langevin.representation,
+            modes=modes,
+            state_spec=state_spec,
+            covariance=S,
+            pair_indices=pair_indices,
+            pair_order=pair_order,
+            hamiltonian=H,
+            diffusion=G,
+            rhs_matrix=rhs_matrix,
+            rhs=rhs,
+            langevin=langevin,
+            parameter_spec=parameter_spec,
+            parameter_order_explicit=True,
+        )
+        result.state_layout_version = AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION
+        return result
+
+    @property
+    def provenance(self) -> DerivationProvenance:
+        fpe = self.langevin.fokker_planck
+        return DerivationProvenance(
+            representation=self.representation,
+            phase_space_variable_order=tuple(str(v) for v in self.langevin.variables),
+            fpe_truncation_order=fpe.truncation_order,
+            original_kramers_moyal_order=fpe.original_max_order,
+            discarded_term_count=len(fpe.discarded),
+            fpe_is_exact=fpe.is_exact,
+            stochastic_interpretation="ito",
+            moment_closure="exact_linear_normal_anomalous_second_moments",
+            closure_assumptions=(
+                "augmented H and G are independent of phase-space variables",
+                "no implicit Gaussian/Wick factorization",
+            ),
+            state_layout_version=AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION,
+        )
 
 
 @dataclass(frozen=True)

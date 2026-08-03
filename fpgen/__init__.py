@@ -24,6 +24,7 @@ __version__ = "0.3.0"
 
 from fpgen.derive import derive_kramers_moyal
 from fpgen.covariance import (
+    AugmentedSecondMomentDynamics,
     CovarianceDynamics,
     HermitianCovarianceJacobian,
     LinearReductionCandidate,
@@ -48,6 +49,7 @@ from fpgen.results import (
     LangevinEquation,
 )
 from fpgen.numerical import (
+    AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION,
     MODEL_SCHEMA_VERSION,
     STATE_LAYOUT_VERSION,
     DerivationProvenance,
@@ -69,12 +71,14 @@ __all__ = [
     "FokkerPlanckEquation",
     "LangevinEquation",
     "CovarianceDynamics",
+    "AugmentedSecondMomentDynamics",
     "HermitianCovarianceJacobian",
     "LinearReductionCandidate",
     "LinearReductionPlan",
     "MaterializedReduction",
     "MODEL_SCHEMA_VERSION",
     "STATE_LAYOUT_VERSION",
+    "AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION",
     "StateVariableSpec",
     "ParameterSpec",
     "SparsityPattern",

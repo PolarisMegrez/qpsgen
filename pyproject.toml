@@ -5,7 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fpgen"
 dynamic = ["version"]
-description = "Structured Kramers–Moyal / Fokker–Planck / Langevin toolkit (Wigner, P, Q, positive-P)."
+description = "Structured Kramers-Moyal / Fokker-Planck / Langevin toolkit (Wigner, P, Q, positive-P)."
+readme = "README.md"
 license = { text = "MIT" }
 authors = [ { name = "Yu Xue-Hao" }, { name = "Qiao Cong-Feng" } ]
 keywords = ["Fokker-Planck", "Kramers-Moyal", "Langevin", "Wigner", "positive-P", "phase-space", "quantum", "Cahill-Glauber"]
