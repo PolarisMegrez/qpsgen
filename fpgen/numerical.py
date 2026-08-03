@@ -22,6 +22,7 @@ __all__ = [
     "MODEL_SCHEMA_VERSION",
     "STATE_LAYOUT_VERSION",
     "AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION",
+    "INDEPENDENT_SECOND_MOMENT_LAYOUT_VERSION",
     "StateVariableSpec",
     "ParameterSpec",
     "SparsityPattern",
@@ -31,10 +32,13 @@ __all__ = [
 ]
 
 
-MODEL_SCHEMA_VERSION = "1.0"
+MODEL_SCHEMA_VERSION = "1.1"
 STATE_LAYOUT_VERSION = "hermitian-declared-index-v1"
 AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION = (
-    "normal-anomalous-second-moment-declared-index-v1"
+    "hermitian-normal-anomalous-declared-index-v2"
+)
+INDEPENDENT_SECOND_MOMENT_LAYOUT_VERSION = (
+    "independent-complex-symmetric-declared-index-v1"
 )
 
 
@@ -115,6 +119,8 @@ class DerivationProvenance:
     moment_closure: str
     closure_assumptions: tuple[str, ...]
     state_layout_version: str = STATE_LAYOUT_VERSION
+    moment_layout: str = "normal"
+    layout_selection: str = "explicit"
 
     def manifest(self) -> dict[str, Any]:
         data = asdict(self)
@@ -216,6 +222,24 @@ class MomentDynamicsSpec(NumericalModelSpec):
 
     def manifest(self) -> dict[str, Any]:
         data = super().manifest()
+        normal_indices = [
+            item.index for item in self.state
+            if item.kind in {"diag", "offdiag_re", "offdiag_im"}
+        ]
+        anomalous_indices = [
+            item.index for item in self.state
+            if item.kind.startswith("anomalous_")
+        ]
+        independent_indices = [
+            item.index for item in self.state
+            if item.kind.startswith("independent_")
+        ]
+        data["moment_layout"] = self.provenance.moment_layout
+        data["state_blocks"] = {
+            "normal": normal_indices,
+            "anomalous": anomalous_indices,
+            "independent": independent_indices,
+        }
         data["capabilities"] = {
             "covariance": None if self.covariance is None else [
                 self.covariance.rows, self.covariance.cols

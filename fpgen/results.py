@@ -17,7 +17,7 @@ from __future__ import annotations
 import sympy as sp
 
 from fpgen.diffop import multi_index_order
-from fpgen.errors import ProbabilityConservationError
+from fpgen.errors import CovarianceClosureError, ProbabilityConservationError
 
 __all__ = [
     "KramersMoyalSeries",
@@ -400,6 +400,23 @@ class LangevinEquation:
         n = len(self.variables) // 2
         return self.hamiltonian[:n, n:].applyfunc(sp.simplify)
 
+    @property
+    def pairing_hamiltonian(self) -> sp.Matrix | None:
+        """Alias for the pairing block ``V`` in the conjugate augmented drift."""
+        return self.anomalous_hamiltonian
+
+    def to_augmented_blocks(self, *, real_parameters=None):
+        """Return validated ``H/V`` and ``D/M`` conjugate block matrices.
+
+        By project convention, omitted external-symbol assumptions are real.
+        Pass ``real_parameters=()`` to preserve genuinely complex parameters.
+        """
+        from fpgen.covariance import AugmentedLangevinBlocks
+
+        return AugmentedLangevinBlocks.from_langevin(
+            self, real_parameters=real_parameters
+        )
+
     def to_covariance_jacobian(self):
         """Build the closed Hermitian covariance flow and real Jacobian.
 
@@ -420,28 +437,157 @@ class LangevinEquation:
         numerical model specification.  Parameters without SymPy real-domain
         assumptions require an explicit ``parameter_domains`` override.
         """
-        from fpgen.covariance import CovarianceDynamics
+        return self.to_second_moment_dynamics(
+            parameters=parameters,
+            parameter_domains=parameter_domains,
+            layout="normal",
+            closure="factorized_bilinear",
+        )
 
-        return CovarianceDynamics.from_langevin(
+    def to_second_moment_dynamics(
+        self,
+        *,
+        parameters=None,
+        parameter_domains=None,
+        layout="auto",
+        closure="exact",
+    ):
+        """Build normal or Hermitian augmented second-moment dynamics.
+
+        ``layout='auto'`` validates a normal-only proof first. If that proof
+        is unavailable, it derives the full ``R/C`` system and projects to
+        ``R`` only after proving that its flow is autonomous and equivalent.
+
+        ``closure='exact'`` rejects state-dependent Hamiltonian blocks.
+        ``closure='factorized_bilinear'`` explicitly replaces quadratic
+        phase-space factors in ``H`` and ``D`` by second moments.
+        """
+        from fpgen.covariance import (
+            AugmentedSecondMomentDynamics,
+            CovarianceDynamics,
+            MomentLayoutDecision,
+        )
+
+        normalized_layout = str(layout).strip().lower()
+        if normalized_layout not in {
+            "auto", "normal", "augmented", "independent"
+        }:
+            raise CovarianceClosureError(
+                "layout must be 'auto', 'normal', 'augmented', or 'independent'."
+            )
+        if self.representation == "positive-p":
+            if normalized_layout not in {"auto", "independent"}:
+                raise CovarianceClosureError(
+                    "positive-P partners are independent; request layout='independent' "
+                    "or layout='auto'."
+                )
+            from fpgen.covariance import IndependentSecondMomentDynamics
+
+            independent = IndependentSecondMomentDynamics.from_langevin(
+                self,
+                parameters=parameters,
+                parameter_domains=parameter_domains,
+                closure_policy=closure,
+            )
+            if normalized_layout == "auto":
+                independent.layout_decision = MomentLayoutDecision(
+                    requested_layout="auto",
+                    selected_layout="independent",
+                    normal_autonomous=False,
+                    reasons=("positive-P partners are independent",),
+                )
+            return independent
+        if normalized_layout == "independent":
+            raise CovarianceClosureError(
+                "The independent layout is only valid for positive-P variables."
+            )
+        normal_error = None
+        if normalized_layout in {"auto", "normal"}:
+            try:
+                # Validate the conjugate H/V and D/M structure first.  If the
+                # existing normal closure then succeeds, V is zero and every
+                # phase-space factor needed by dot(R) maps to R alone; no C
+                # equation needs to be expanded merely to prove autonomy.
+                self.to_augmented_blocks(real_parameters=parameters)
+                normal = CovarianceDynamics.from_langevin(
+                    self,
+                    parameters=parameters,
+                    parameter_domains=parameter_domains,
+                    closure_policy=closure,
+                )
+                normal.layout_decision = MomentLayoutDecision(
+                    requested_layout=normalized_layout,
+                    selected_layout="normal",
+                    normal_autonomous=True,
+                    projection_residual=sp.zeros(len(normal.modes)),
+                    reasons=(
+                        "V is zero and H/D close exclusively on normal moments",
+                    ),
+                )
+                return normal
+            except CovarianceClosureError as exc:
+                normal_error = exc
+        augmented = AugmentedSecondMomentDynamics.from_langevin(
             self,
             parameters=parameters,
             parameter_domains=parameter_domains,
+            closure_policy=closure,
+        )
+        if normalized_layout == "augmented":
+            return augmented
+
+        decision = augmented.normal_layout_decision(
+            requested_layout=normalized_layout
+        )
+        if decision.normal_autonomous:
+            return augmented.project_normal(
+                requested_layout=normalized_layout
+            )
+        if normalized_layout == "normal":
+            prefix = (
+                "The anomalous Hamiltonian prevents a closed normal moment "
+                "matrix: "
+                if augmented.pairing_hamiltonian != sp.zeros(
+                    augmented.pairing_hamiltonian.rows
+                )
+                else "The normal moment matrix is not autonomous: "
+            )
+            raise CovarianceClosureError(
+                prefix
+                + "; ".join(decision.reasons)
+                + (f"; initial normal check: {normal_error}" if normal_error else "")
+            )
+        augmented.layout_decision = decision
+        return augmented
+
+    def to_independent_second_moment_dynamics(
+        self,
+        *,
+        parameters=None,
+        parameter_domains=None,
+        closure="exact",
+    ):
+        """Force the complex-symmetric positive-P second-moment layout."""
+        return self.to_second_moment_dynamics(
+            parameters=parameters,
+            parameter_domains=parameter_domains,
+            layout="independent",
+            closure=closure,
         )
 
     def to_augmented_second_moment_dynamics(
-        self, *, parameters, parameter_domains=None
+        self,
+        *,
+        parameters=None,
+        parameter_domains=None,
+        closure="exact",
     ):
-        """Build exact normal/anomalous second moments for a linear drift.
-
-        This closes the covariance dynamics of parametric linear systems whose
-        augmented Hamiltonian and FPE diffusion are state independent.
-        """
-        from fpgen.covariance import AugmentedSecondMomentDynamics
-
-        return AugmentedSecondMomentDynamics.from_langevin(
-            self,
+        """Compatibility wrapper forcing the Hermitian augmented layout."""
+        return self.to_second_moment_dynamics(
             parameters=parameters,
             parameter_domains=parameter_domains,
+            layout="augmented",
+            closure=closure,
         )
 
     # ------------------------------------------------------------------

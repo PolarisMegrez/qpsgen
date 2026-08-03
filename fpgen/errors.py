@@ -40,7 +40,7 @@ class ProbabilityConservationError(FPGenError):
 
 
 class CovarianceClosureError(FPGenError):
-    """The Hermitian second-moment dynamics is not symbolically closed."""
+    """A requested second-moment layout or closure is not symbolically valid."""
 
 
 class NumericalModelError(FPGenError):

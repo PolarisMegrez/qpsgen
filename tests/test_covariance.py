@@ -5,7 +5,11 @@ import pytest
 
 from fpgen import (
     AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION,
+    INDEPENDENT_SECOND_MOMENT_LAYOUT_VERSION,
+    AugmentedSecondMomentDynamics,
     CovarianceClosureError,
+    CovarianceDynamics,
+    IndependentSecondMomentDynamics,
     LindbladChannel,
     MasterEquation,
     boson_modes,
@@ -51,6 +55,17 @@ def test_van_der_pol_covariance_jacobian_matches_closed_equations():
         ],
     ])
     assert (result.jacobian - expected).applyfunc(sp.simplify) == sp.zeros(4)
+
+    auto = langevin.to_second_moment_dynamics(
+        parameters=(omega_a, omega_b, g, gamma_a, gamma_b, Gamma),
+        layout="auto",
+        closure="factorized_bilinear",
+    )
+    assert type(auto) is CovarianceDynamics
+    assert auto.layout_kind == "normal"
+    assert auto.layout_decision.normal_autonomous
+    assert auto.layout_decision.requested_layout == "auto"
+    assert auto.layout_decision.projection_residual == sp.zeros(2)
 
 
 def test_vectorization_uses_declared_index_upper_triangle_order():
@@ -118,11 +133,53 @@ def test_anomalous_hamiltonian_requires_augmented_covariance():
     augmented = langevin.to_augmented_second_moment_dynamics(
         parameters=(omega, epsilon, kappa)
     )
+    auto = langevin.to_second_moment_dynamics(
+        parameters=(omega, epsilon, kappa), layout="auto"
+    )
+    assert isinstance(auto, AugmentedSecondMomentDynamics)
+    assert auto.layout_decision.selected_layout == "augmented"
+    assert auto.layout_decision.anomalous_dependencies == ("x2",)
     R_aa, re_C_aa, im_C_aa = augmented.coordinates
     assert augmented.state_layout_version == AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION
     assert tuple(item.id for item in augmented.state_spec) == (
         "r_diag_0", "c_re_0_0", "c_im_0_0",
     )
+    assert augmented.normal_moment == sp.Matrix([[R_aa]])
+    assert augmented.anomalous_moment == sp.Matrix([[re_C_aa + sp.I * im_C_aa]])
+    assert augmented.moment_matrix == sp.Matrix([
+        [R_aa, re_C_aa + sp.I * im_C_aa],
+        [re_C_aa - sp.I * im_C_aa, R_aa],
+    ])
+    blocks = langevin.to_augmented_blocks(
+        real_parameters=(omega, epsilon, kappa)
+    )
+    assert blocks.physical_hamiltonian == sp.Matrix([
+        [omega - sp.I * kappa / 2]
+    ])
+    assert blocks.pairing_hamiltonian == sp.Matrix([[epsilon]])
+    assert blocks.augmented_diffusion == sp.diag(kappa / 2, kappa / 2)
+    assert blocks.augmented_diffusion == (
+        blocks.transpose_diffusion * blocks.exchange_matrix
+    )
+    H = augmented.physical_hamiltonian
+    V = augmented.pairing_hamiltonian
+    R = augmented.normal_moment
+    C = augmented.anomalous_moment
+    D = augmented.normal_diffusion
+    M = augmented.anomalous_diffusion
+    expected_R_flow = (
+        -sp.I * (H * R + V * C.conjugate())
+        + sp.I * (R * H.conjugate().T + C * V.conjugate().T)
+        + D
+    ).applyfunc(sp.simplify)
+    expected_C_flow = (
+        -sp.I * (
+            H * C + C * H.T + V * R.conjugate() + R * V.T
+        )
+        + M
+    ).applyfunc(sp.simplify)
+    assert augmented.normal_rhs == expected_R_flow
+    assert augmented.anomalous_rhs == expected_C_flow
     expected_flow = sp.Matrix([
         -kappa * R_aa - 2 * epsilon * im_C_aa + kappa / 2,
         -kappa * re_C_aa + 2 * omega * im_C_aa,
@@ -153,3 +210,80 @@ def test_positive_p_has_no_hermitian_partner_covariance():
     )
     with pytest.raises(CovarianceClosureError, match="positive-P"):
         langevin.to_covariance_jacobian()
+
+
+def test_nonlinear_anomalous_dependency_prevents_normal_fallback():
+    (a,) = boson_modes("a")
+    lam = sp.Symbol("lambda", real=True)
+    master = MasterEquation(
+        modes=[a],
+        hamiltonian=lam * (a.dag**3 * a + a.dag * a**3),
+    )
+    langevin = derive_kramers_moyal(master, "wigner").truncate(2).to_langevin()
+    with pytest.raises(CovarianceClosureError, match="state-independent"):
+        langevin.to_second_moment_dynamics(
+            parameters=(lam,), layout="auto", closure="exact"
+        )
+
+    dynamics = langevin.to_second_moment_dynamics(
+        parameters=(lam,),
+        layout="auto",
+        closure="factorized_bilinear",
+    )
+    assert isinstance(dynamics, AugmentedSecondMomentDynamics)
+    R, c_re, c_im = dynamics.coordinates
+    assert dynamics.normal_rhs == sp.Matrix([
+        2 * lam * c_im * (3 - 2 * R)
+    ])
+    assert dynamics.layout_decision.anomalous_dependencies == ("x2",)
+    assert dynamics.provenance.moment_closure == "factorized_bilinear"
+    with pytest.raises(CovarianceClosureError, match="prevents a closed normal"):
+        langevin.to_second_moment_dynamics(
+            parameters=(lam,),
+            layout="normal",
+            closure="factorized_bilinear",
+        )
+
+
+def test_positive_p_uses_independent_complex_symmetric_second_moments():
+    (a,) = boson_modes("a")
+    omega, epsilon = sp.symbols("omega epsilon", real=True)
+    master = MasterEquation(
+        modes=[a],
+        hamiltonian=(
+            omega * a.dag * a + epsilon / 2 * (a.dag**2 + a**2)
+        ),
+    )
+    langevin = derive_kramers_moyal(
+        master, "positive-p"
+    ).truncate(2).to_langevin()
+    dynamics = langevin.to_second_moment_dynamics(
+        parameters=(omega, epsilon), layout="auto"
+    )
+    assert isinstance(dynamics, IndependentSecondMomentDynamics)
+    assert dynamics.layout_kind == "independent"
+    assert dynamics.state_layout_version == INDEPENDENT_SECOND_MOMENT_LAYOUT_VERSION
+    assert tuple(item.id for item in dynamics.state_spec) == (
+        "s_re_0_0", "s_re_0_1", "s_re_1_1",
+        "s_im_0_0", "s_im_0_1", "s_im_1_1",
+    )
+    assert dynamics.moment_matrix == dynamics.moment_matrix.T
+    assert dynamics.rhs_matrix == (
+        -sp.I * (
+            dynamics.hamiltonian * dynamics.moment_matrix
+            + dynamics.moment_matrix * dynamics.hamiltonian.T
+        )
+        + dynamics.diffusion
+    ).applyfunc(sp.simplify)
+    manifest = dynamics.to_model_spec(name="positive_p_parametric").manifest()
+    assert manifest["moment_layout"] == "independent"
+    assert manifest["provenance"]["layout_selection"] == "auto_verified"
+    assert manifest["state_blocks"] == {
+        "normal": [],
+        "anomalous": [],
+        "independent": list(range(6)),
+    }
+    with pytest.raises(CovarianceClosureError, match="independent"):
+        langevin.to_second_moment_dynamics(
+            parameters=(omega, epsilon), layout="augmented"
+        )

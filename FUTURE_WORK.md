@@ -8,10 +8,10 @@ Jacobian 和符号约化方程；定点搜索、延拓、分岔判定和 GPU 执
 - 支持 Wigner、P、Q 和 positive-P 表象的完整 Kramers--Moyal series。
 - 在 flux 形式下进行二阶截断，并生成 Fokker--Planck 与增广 Itô Langevin 对象。
 - 直接从 FPE 扩散矩阵给出正常关联 `D` 和反常关联 `M`。
-- 对满足严格双线性闭合的 Wigner/P/Q 系统生成 Hermitian 正常二阶矩动力学、
-  实向量化状态及 Jacobian。
-- 对线性漂移和常数扩散生成包含正常矩 `R` 与反常矩 `C` 的精确增广二阶矩动力学，
-  已覆盖简并参量振荡器。
+- Wigner/P/Q 使用 Hermitian 增广矩 `R_tilde=[[R,C],[C*,R*]]`，分别生成
+  `dot(R)`、`dot(C)`、实向量化状态及 Jacobian；经符号验证后可自动回退到 normal 布局。
+- 严格区分 `exact` 与 `factorized_bilinear` 闭合策略，并记录在 provenance 中。
+- positive-P 使用 alpha/beta 独立的复对称二阶矩布局，不施加共轭约束。
 - 支持仿射平衡方程块的符号消元，并生成真正的约化动力学
   `dot(q)=G(q;p)=P(q;p)/Q(q;p)`、正则条件与重根条件。
 - `MomentDynamicsSpec` 提供版本化状态/参数布局、推导来源、稀疏结构、指纹及 NumPy
@@ -19,10 +19,10 @@ Jacobian 和符号约化方程；定点搜索、延拓、分岔判定和 GPU 执
 
 ## 后续优先事项
 
-### 1. 完善增广二阶矩闭合
+### 1. 扩展矩闭合策略
 
-- 为 positive-P 增加 alpha/beta 独立二阶矩状态，并在数值边界明确拆分实部和虚部。
-- 评估非线性反常 Hamiltonian 的可闭合模型；不能精确闭合时必须显式拒绝。
+- 评估是否需要加入包含一阶矩的仿射闭合，以支持无法写成 `A(z)z` 的常数驱动。
+- 为高于双线性的相位多项式设计可插拔闭合接口；默认仍应明确拒绝。
 - 如引入 Gaussian/Wick 等近似闭合，必须使用独立 API、明确命名，并写入
   provenance，不能隐式启用。
 
@@ -56,4 +56,4 @@ python -m compileall -q fpgen tests
 ```
 
 涉及 notebook 或公开 API 时，还应从空命名空间顺序执行 `example.ipynb` 与
-`example_local.ipynb` 的全部代码单元。
+`models.ipynb` 的全部代码单元。

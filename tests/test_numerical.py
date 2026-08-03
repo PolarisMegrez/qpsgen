@@ -163,6 +163,12 @@ def test_moment_model_spec_manifest_and_numpy_batch_reference(tmp_path):
         "hamiltonian": [2, 2],
         "diffusion": [2, 2],
     }
+    assert manifest["moment_layout"] == "normal"
+    assert manifest["state_blocks"] == {
+        "normal": [0, 1, 2, 3],
+        "anomalous": [],
+        "independent": [],
+    }
     target = spec.write_manifest(tmp_path / "model.json")
     loaded = json.loads(target.read_text(encoding="utf-8"))
     assert loaded["fingerprint"] == spec.fingerprint
@@ -210,3 +216,43 @@ def test_model_fingerprint_includes_derivation_provenance():
     assert specs[0].provenance.representation == "wigner"
     assert specs[1].provenance.representation == "p"
     assert specs[0].fingerprint != specs[1].fingerprint
+
+
+def test_augmented_model_spec_exports_layout_and_numpy_reference():
+    (a,) = boson_modes("a")
+    omega, epsilon, kappa = sp.symbols(
+        "omega epsilon kappa", real=True
+    )
+    master = MasterEquation(
+        modes=[a],
+        hamiltonian=(
+            omega * a.dag * a + epsilon / 2 * (a.dag**2 + a**2)
+        ),
+        channels=[LindbladChannel(a, kappa)],
+    )
+    dynamics = (
+        derive_kramers_moyal(master, "wigner")
+        .truncate(2)
+        .to_langevin()
+        .to_second_moment_dynamics(
+            parameters=(omega, epsilon, kappa), layout="auto"
+        )
+    )
+    spec = dynamics.to_model_spec(name="dpo_augmented")
+    manifest = spec.manifest()
+    assert manifest["moment_layout"] == "augmented"
+    assert manifest["state_blocks"] == {
+        "normal": [0],
+        "anomalous": [1, 2],
+        "independent": [],
+    }
+    assert manifest["provenance"]["moment_closure"] == "exact"
+    assert manifest["provenance"]["layout_selection"] == "auto_verified"
+
+    numpy = pytest.importorskip("numpy")
+    namespace = {}
+    exec(spec.numpy_source(), namespace)
+    x = numpy.array([1.0, 0.2, -0.3])
+    p = numpy.array([1.1, 0.4, 0.5])
+    assert namespace["rhs"](x, p).shape == (3,)
+    assert namespace["jacobian"](x, p).shape == (3, 3)

@@ -1,4 +1,4 @@
-# fpgen
+# fpgen — Kramers–Moyal / Fokker–Planck / Langevin toolkit
 
 `fpgen` derives phase-space dynamics from a structured bosonic master
 equation using exact SymPy algebra. It supports the Wigner, Glauber-Sudarshan
@@ -113,55 +113,129 @@ langevin.diffusion               # G_aug
 langevin.normal_correlation      # D = <xi xi^dagger>
 langevin.anomalous_correlation   # M = <xi xi^T>
 langevin.noise_factor            # canonical B with B B^T = G_aug
+blocks = langevin.to_augmented_blocks()
+blocks.physical_hamiltonian      # H
+blocks.pairing_hamiltonian       # V
+blocks.augmented_hamiltonian     # [[H,V],[-V*, -H*]]
+blocks.augmented_diffusion       # D_tilde = [[D,M],[M*,D*]]
 ```
 
 For Wigner/P/Q, `D` and `M` are extracted directly from the FPE diffusion,
 not reconstructed from the noise factor. The factor `B` is one valid
 real-noise realization and is generally not minimal.
 
-## Second-moment dynamics
-
-For systems closed by the normal Hermitian moment matrix
-`R_ij = <alpha_i alpha_j*>`:
-
-```python
-dynamics = langevin.to_covariance_dynamics(
-    parameters=(omega, kappa),
-)
-
-dynamics.covariance       # symbolic R
-dynamics.rhs_matrix       # dot(R)
-dynamics.rhs              # real vectorized flow F(r; p)
-dynamics.jacobian()       # dF/dr
-```
-
-The exact closed equation is
+The FPE matrix and Hermitian noise correlation use different products. With
+`z = (alpha, alpha*)` and the block-exchange matrix `J`,
 
 ```text
-dot(R) = -i [H(R) R - R H(R)^dagger] + D(R).
+G_aug   = <xi_tilde xi_tilde^T>,
+D_tilde = <xi_tilde xi_tilde^dagger> = G_aug J.
 ```
 
-No Gaussian or Wick closure is applied implicitly. Expressions outside the
-implemented exact bilinear closure raise `CovarianceClosureError`.
+`to_augmented_blocks()` validates the conjugate block identities before
+returning `H`, `V`, `D`, `M`, `H_tilde`, and `D_tilde`.
 
-The real coordinate order is stable and versioned:
+## Second-moment dynamics
 
-1. diagonal entries in declared mode order;
-2. real parts of upper-triangle entries in lexicographic mode-index order;
-3. imaginary parts in the same upper-triangle order.
-
-Linear systems with pairing terms, such as a degenerate parametric
-oscillator, require anomalous moments `C_ij = <alpha_i alpha_j>`. Use:
+The unified entry point derives a full moment system and selects its layout:
 
 ```python
-augmented = langevin.to_augmented_second_moment_dynamics(
+dynamics = langevin.to_second_moment_dynamics(
     parameters=(omega, epsilon, kappa),
+    layout="auto",       # auto | normal | augmented | independent
+    closure="exact",     # exact | factorized_bilinear
 )
 ```
 
-This constructs the exact normal/anomalous second-moment state. It currently
-requires state-independent augmented drift and diffusion matrices. Positive-P
-second-moment closure is not yet provided.
+For Wigner/P/Q, define
+
+```text
+R = <alpha alpha^dagger>,       C = <alpha alpha^T>,
+R_tilde = <z z^dagger> = [[R,C],[C*,R*]].
+```
+
+The Hermitian augmented equation is
+
+```text
+dot(R_tilde) = -i H_tilde R_tilde
+               + i R_tilde H_tilde^dagger + D_tilde.
+```
+
+Its two independent blocks are
+
+```text
+dot(R) = -i(HR + VC*) + i(RH^dagger + CV^dagger) + D,
+dot(C) = -i(HC + CH^T + VR* + RV^T) + M.
+```
+
+The returned object exposes both the matrix and real-vector forms:
+
+```python
+dynamics.layout_kind          # normal | augmented | independent
+dynamics.normal_moment        # R, if conjugate-partner layout
+dynamics.anomalous_moment     # C, for augmented layout
+dynamics.moment_matrix        # R, R_tilde, or positive-P S
+dynamics.normal_rhs           # dot(R)
+dynamics.anomalous_rhs        # dot(C)
+dynamics.rhs                  # real vectorized F(x; p)
+dynamics.jacobian()           # dF/dx
+dynamics.layout_decision      # symbolic evidence for auto selection
+```
+
+### Automatic normal fallback
+
+`layout="auto"` returns the smaller normal state only after symbolic checks
+prove that `dot(R)` has no anomalous coordinates and agrees with
+
+```text
+dot(R) = -i(HR - RH^dagger) + D.
+```
+
+The fast proof checks `V=0` and verifies that every phase-space factor needed
+by `H` and `D` maps exclusively to `R`. If that proof is unavailable, fpgen
+constructs the full `R/C` equations and checks their actual dependencies.
+`layout="normal"` raises `CovarianceClosureError` rather than discarding a
+required anomalous state.
+
+### Closure policy
+
+`closure="exact"` accepts a state-independent Hamiltonian and diffusion terms
+whose Ito contribution can be expressed using second moments. It rejects a
+nonlinear Hamiltonian because its second-moment equation generally contains
+higher moments.
+
+`closure="factorized_bilinear"` explicitly applies
+
+```text
+alpha_i alpha_j       -> C_ij
+alpha_i alpha_j*      -> R_ij
+alpha_i* alpha_j      -> R_ji
+alpha_i* alpha_j*     -> C_ij*
+```
+
+inside `H_tilde` and `D_tilde` before matrix multiplication. This is the
+nonlinear second-moment model used by the VDP and Kerr examples, but it is a
+declared factorization, not an exact Ito moment closure. The policy is stored
+in derivation provenance. Gaussian/Wick closure is never enabled implicitly.
+
+### State layouts
+
+The normal real coordinate order remains:
+
+1. diagonal `R` entries in declared mode order;
+2. real parts of upper-triangle `R` entries in lexicographic index order;
+3. imaginary parts in the same order.
+
+The Hermitian augmented layout then appends real and imaginary parts of the
+upper triangle of the symmetric `C`, including its diagonal.
+
+For positive-P, `alpha` and `beta` are independent. `layout="auto"` therefore
+selects a separate complex-symmetric state `S=<z z^T>` and never imposes the
+Wigner/P/Q conjugacy constraints.
+
+The older `to_covariance_dynamics()` and
+`to_augmented_second_moment_dynamics()` methods remain as compatibility
+wrappers around the unified API.
 
 ## Symbolic scalar reduction
 
@@ -207,6 +281,10 @@ The symbolic moment dynamics can be exported as a versioned
 sparsity, and a reproducible fingerprint, and can generate a float64 NumPy
 reference model with batched RHS, Jacobians, JVPs, and VJPs.
 
+Schema `1.1` reports `moment_layout` and explicit `normal`, `anomalous`, and
+`independent` state-index blocks. Downstream code therefore does not need to
+infer matrix semantics from display names.
+
 This interface is intended for validation and handoff to numerical projects.
 It does not make numerical bifurcation solving part of `fpgen`, and the public
 notebooks do not run downstream solvers.
@@ -219,8 +297,9 @@ notebooks do not run downstream solvers.
 - `models.ipynb` is a compact gallery covering every maintained model:
   degenerate parametric oscillator, two-mode van der Pol, pair hopping,
   two-mode Kerr, three-mode Kerr, and cross-Kerr. Each entry displays the
-  Hamiltonian, diffusion correlations, Jacobian, retained order parameter,
-  and reduced symbolic dynamics.
+  Hamiltonian, diffusion correlations, selected moment layout, Jacobian,
+  retained order parameter, and reduced symbolic dynamics. The DPO entry also
+  displays `R_tilde`, `dot(R)`, and `dot(C)`.
 
 ## Notes
 
@@ -229,6 +308,8 @@ notebooks do not run downstream solvers.
   greater than two. Inspect `fpe.discarded` and `fpe.is_exact`.
 - Symbolic reduction describes regular elimination branches. Singular blocks
   require separate analysis.
+- Nonlinear `factorized_bilinear` moment dynamics is an explicit modeling
+  approximation; use `closure="exact"` when an exact Ito closure is required.
 - Numerical continuation, root finding, certification, and GPU kernels are
   intentionally outside this repository.
 
