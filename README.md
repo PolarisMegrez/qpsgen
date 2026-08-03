@@ -1,22 +1,30 @@
-# fpgen — Generate Fokker–Planck terms (Cahill–Glauber s‑ordered)
+# fpgen — Kramers–Moyal / Fokker–Planck / Langevin toolkit
 
-fpgen generates the corresponding term(s) of the phase‑space Fokker–Planck equation from a quantum Liouvillian operator expression, in the Cahill–Glauber s‑parameterized quasi‑probability representations (Wigner: s=0, P: s=+1, Q: s=−1). It accepts restricted LaTeX‑like operator expressions and produces either tuple form or a readable LaTeX‑like form.
+fpgen derives the **Kramers–Moyal series** of a quantum master equation in a
+phase-space representation (**Wigner**, **P**, **Q**, or **positive-P**),
+truncates it to a **Fokker–Planck equation**, and converts that to an Itô
+**c-number Langevin equation** on the augmented complex state — all with
+exact SymPy symbolics.
 
 **Authors: Yu Xue-Hao and Qiao Cong-Feng (University of Chinese Academy of Sciences, UCAS)**
 
-- Supported representations:
-  - Wigner (s = 0)
-  - P / Glauber–Sudarshan (s = +1)
-  - Q / Husimi (s = −1)
-- Multi-mode is supported; each latin letter (a, b, c, ...) denotes an independent mode.
-- Input must contain exactly one `\rho`.
+```python
+from fpgen import boson_modes, MasterEquation, LindbladChannel, derive_kramers_moyal
+
+a, = boson_modes("a")
+master = MasterEquation(modes=[a], hamiltonian=..., channels=[...])
+km = derive_kramers_moyal(master, representation="positive-p")
+fpe = km.truncate(2)
+langevin = fpe.to_langevin()
+```
+
+> **Breaking change (0.2.0).** The legacy string-parsing API (`opr2fp`,
+> `to_fp_normal_form`, exponent-tuple output) has been removed. See
+> [Migration](#migration-from-01x) below.
 
 ## Installation
 
-- Requirements: Python >= 3.8
-- fpgen has no external runtime dependencies (standard library only).
-
-Install from source (editable for development):
+- Requirements: Python >= 3.10, SymPy (>=1.12, <2).
 
 ```powershell
 git clone https://github.com/PolarisMegrez/fpgen.git
@@ -24,90 +32,144 @@ cd fpgen
 pip install -e .
 ```
 
-Or install directly from a local checkout without editable mode:
+For development (tests):
 
 ```powershell
-pip install .
+pip install -e .[dev]
+pytest tests/
 ```
 
-## Substitution rules (single mode)
+## Building a master equation
 
-For a general s-parameter (−1 ≤ s ≤ 1), the left/right operator products map to:
-
-- Left multiplication
-  - a ρ → α + (1 − s)/2 ∂/∂α*
-  - a† ρ → α* − (1 + s)/2 ∂/∂α
-- Right multiplication
-  - ρ a → α − (1 + s)/2 ∂/∂α*
-  - ρ a† → α* + (1 − s)/2 ∂/∂α
-
-Special cases:
-- Wigner (s = 0)
-  - a ρ → α + 1/2 ∂/∂α*,  a† ρ → α* − 1/2 ∂/∂α
-  - ρ a → α − 1/2 ∂/∂α*,  ρ a† → α* + 1/2 ∂/∂α
-- P / Glauber–Sudarshan (s = +1)
-  - a ρ → α,               a† ρ → α* − ∂/∂α
-  - ρ a → α − ∂/∂α*,       ρ a† → α*
-- Q / Husimi (s = −1)
-  - a ρ → α + ∂/∂α*,       a† ρ → α*
-  - ρ a → α,               ρ a† → α* + ∂/∂α
-
-## API
-
-Two main entry points:
-
-### Main (readable + tuples):
-```python
-opr2fp(expr, output_format='flux'|'normal', max_order=-1, output_style='both'|'tuple'|'latex', representation=None, s=None)
-```
-
-- Returns a formatted string that includes a header (representation, mode mapping, exponent headers) and either/both:
-  - Tuples (when output_style includes 'tuple')
-  - LaTeX-like terms (when output_style includes 'latex')
-- Representation selection:
-  - By s in [−1, 1], or by representation name ('Wigner', 'P' (aliases: 'Glauber', 'Glauber P', 'Glauber-Sudarshan'), 'Q' (aliases: 'Husimi', 'Husimi Q')).
-  - If both are provided, s takes precedence and representation is ignored with a warning.
-
-### Programmatic tuples only:
-```python
-- to_fp_normal_form(expr, output_format='flux'|'normal', max_order=-1, representation=None, s=None) -> List[tuple]
-```
-
-## Readable printing
-
-- Use opr2fp(...) as the top-level convenience function.
-- The header shows the selected representation and the per-mode exponent headers in the order [∂_α, ∂_{α*}, α, α*].
-- Modes are mapped to Greek letters α, β, γ, ... for readability.
-
-## Examples
+Modes are created explicitly and their order is declared on the
+`MasterEquation` — it defines the phase-space variable order everywhere
+downstream:
 
 ```python
-from fpgen import opr2fp, to_fp_normal_form
+import sympy as sp
+from fpgen import boson_modes, MasterEquation, LindbladChannel, LiouvillianTerm
 
-expr = "a^{\\dagger} \\rho a"
+a, b = boson_modes("a", "b")
+omega, kappa, g = sp.symbols("omega kappa g", positive=True)
 
-# Wigner (default)
-print(opr2fp(expr))
-
-# Explicit P representation
-print(opr2fp(expr, representation='P'))
-
-# Explicit Q representation
-print(opr2fp(expr, representation='Husimi Q'))
-
-# Using s parameter (takes precedence over representation)
-print(opr2fp(expr, s=1.0, representation='Q'))
-
-# Programmatic tuples only, P representation
-tuples_p = to_fp_normal_form(expr, output_format='flux', representation='p')
-print(tuples_p)
+master = MasterEquation(
+    modes=[a, b],                                    # explicit global order
+    hamiltonian=omega * a.dag * a + g * (a.dag * b + b.dag * a),
+    channels=[LindbladChannel(jump=a, rate=kappa)],  # kappa*(a ρ a† - {a†a, ρ}/2)
+    extra_terms=[LiouvillianTerm(1, left=a.dag, right=b)],  # a† ρ b, if needed
+)
 ```
+
+- Operators are non-commutative polynomials: `+`, `-`, `*`, integer powers,
+  SymPy scalar coefficients (including `sp.I` and symbols), and `.dag`
+  (reverses operator order and conjugates coefficients).
+- `hamiltonian=H` contributes `-I [H, ρ]`.
+- `LindbladChannel(jump=L, rate=γ)` contributes `γ (L ρ L† - {L†L, ρ}/2)`.
+- `LiouvillianTerm(c, left, right)` is an explicit `c * left * ρ * right`.
+
+## The three-step pipeline
+
+### 1. `derive_kramers_moyal(master, representation=...) -> KramersMoyalSeries`
+
+The single sign convention of the package is
+
+```
+dP/dt = sum_mu (-1)^|mu| / mu! * ∂^mu [ K_mu(z) P ]
+```
+
+over multi-indices `mu` on the augmented variable order `z`:
+
+- Cahill–Glauber (`"wigner"`, `"p"`, `"q"`): `z = (α_1..α_N, ᾱ_1..ᾱ_N)`, with
+  `ᾱ` treated as an independent complex variable.
+- `"positive-p"`: `z = (α_1..α_N, β_1..β_N)`, where `β` is **not** the
+  conjugate of `α`.
+
+All orders are kept exactly — nothing is truncated during derivation.
+Representation names are a strict enumeration with canonical aliases
+(`"Positive P"`, `"Glauber-Sudarshan"`, `"Husimi Q"`, ...); unknown names
+raise `RepresentationError`.
+
+### 2. `km.truncate(2) -> FokkerPlanckEquation`
+
+Truncation happens in flux form, after the exact normal → flux Leibniz
+rearrangement (never in the normal form, which would lose lower-order
+terms). Dropped coefficients are recorded:
+
+```python
+fpe.is_exact            # False if anything was dropped
+fpe.discarded           # {mu: K_mu} of dropped terms
+fpe.original_max_order  # highest order of the untruncated series
+fpe.drift               # A_i = K_{e_i}
+fpe.diffusion           # G_ij = K_{e_i + e_j}  (complex symmetric)
+```
+
+### 3. `fpe.to_langevin() -> LangevinEquation`
+
+An Itô equation `dz/dt = A(z) + ξ` with `ξ = B η` (η independent real
+Gaussian white noises):
+
+```python
+lan.drift                  # A(z)
+lan.diffusion              # G_aug — full augmented FPE diffusion matrix
+lan.noise_factor           # canonical B with B Bᵀ = G (not minimal)
+lan.anomalous_correlation  # Cahill–Glauber: M = G_aug[:N, :N]
+lan.normal_correlation     # Cahill–Glauber: D = G_aug[:N, N:]
+lan.physical_hamiltonian   # Cahill–Glauber: upper-left N×N block of H_eff
+lan.anomalous_hamiltonian  # Cahill–Glauber: upper-right N×N block of H_eff
+lan.hamiltonian            # H_eff(z) with A = -i H_eff z, or None
+lan.diagnostics            # why H_eff is None, when it is
+```
+
+- If the zero-order KM coefficient is nonzero (master equation does not
+  conserve probability), `to_langevin()` raises
+  `ProbabilityConservationError`.
+- For Wigner/P/Q, the conjugate-augmented FPE directly determines
+  `M = G_aug[:N, :N]` and `D = G_aug[:N, N:]`; these matrices are not
+  reconstructed through `B`. In positive-P the second half is independent,
+  so `normal_correlation` remains the realization-dependent `B B†`.
+- `H_eff` is extracted only when the drift decomposes canonically: terms of
+  `A_i` containing `z_i` go to the diagonal; otherwise a unique variable in
+  the same augmented half is preferred as the matrix column. Constant drives
+  or ambiguous factorizations yield `H_eff = None` with diagnostics. **Note:** `H_eff` includes
+  dissipative drift, may be non-Hermitian, and is not the physical
+  Hamiltonian of the input master equation.
+
+All result objects offer structured attributes, readable `repr`,
+`to_latex()`, and notebook `_repr_latex_`.
+
+## Example: Kerr oscillator in positive-P
+
+```python
+import sympy as sp
+from fpgen import boson_modes, MasterEquation, derive_kramers_moyal
+
+a, = boson_modes("a")
+chi = sp.symbols("chi")
+master = MasterEquation(modes=[a], hamiltonian=chi / 2 * a.dag**2 * a**2)
+
+km = derive_kramers_moyal(master, representation="positive-p")
+fpe = km.truncate(2)          # exact: the series stops at order 2
+lan = fpe.to_langevin()
+
+lan.drift      # [-I*α²βχ, I*αβ²χ]
+lan.diffusion  # diag(-I χ α², I χ β²)
+```
+
+## Migration from 0.1.x
+
+| 0.1.x (removed) | 0.2.0 |
+| --- | --- |
+| `opr2fp("a^{\\dagger} \\rho a", representation='P')` | build a `MasterEquation` with `LiouvillianTerm(1, left=a.dag, right=a)` and call `derive_kramers_moyal(..., representation="p")` |
+| `to_fp_normal_form(...)` tuple output | `KramersMoyalSeries.coefficients` (`{mu: K_mu}` SymPy mapping) |
+| string parsing, float exponent tuples | structured `Op` algebra + SymPy coefficients |
+| silent fallback of unknown representations to Wigner | `RepresentationError` |
 
 ## Notes
 
-- Sorting is lexicographic by exponent tuples (ignoring coefficients).
-- No integration by parts is performed in flux conversion; constants and pure multipliers are preserved.
-- The parser accepts LaTeX-like input with a single `\\rho` and supports powers (e.g., `a^{2}`, `(a^{\\dagger})^{2}`).
+- SDEs use the Itô interpretation; no Stratonovich conversion is provided.
+- The canonical noise factor `B` uses one column per nonzero diagonal entry
+  of `G` and two phase-related columns per nonzero off-diagonal pair; it is
+  valid for any complex-symmetric symbolic `G` but not minimal.
 
 ## Acknowledgements and License
 
