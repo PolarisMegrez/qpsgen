@@ -14,6 +14,7 @@ anomalous moments ``R=<alpha alpha^dagger>`` and ``C=<alpha alpha^T>``.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, replace
 from functools import cached_property
 from itertools import combinations
@@ -29,6 +30,7 @@ from fpgen.numerical import (
     AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION,
     INDEPENDENT_SECOND_MOMENT_LAYOUT_VERSION,
     MODEL_SCHEMA_VERSION,
+    REDUCTION_API_VERSION,
     STATE_LAYOUT_VERSION,
     DerivationProvenance,
     MomentDynamicsSpec,
@@ -48,6 +50,7 @@ __all__ = [
     "IndependentSecondMomentDynamics",
     "HermitianCovarianceJacobian",
     "LinearReductionCandidate",
+    "ReductionSearchResult",
     "LinearReductionPlan",
     "MaterializedReduction",
 ]
@@ -71,15 +74,17 @@ def _hermitian_state(mode_names: tuple[str, ...]):
 
     for i, mode in enumerate(mode_names):
         index = len(specs)
-        specs.append(StateVariableSpec(
-            id=f"r_diag_{i}",
-            index=index,
-            symbol=sp.Symbol(f"x{index}", real=True),
-            latex_name=f"R_{{{mode}{mode}}}",
-            kind="diag",
-            matrix_index=(i, i),
-            mode_names=(mode, mode),
-        ))
+        specs.append(
+            StateVariableSpec(
+                id=f"r_diag_{i}",
+                index=index,
+                symbol=sp.Symbol(f"x{index}", real=True),
+                latex_name=f"R_{{{mode}{mode}}}",
+                kind="diag",
+                matrix_index=(i, i),
+                mode_names=(mode, mode),
+            )
+        )
     for kind, prefix, latex_kind in (
         ("offdiag_re", "r_re", "Re"),
         ("offdiag_im", "r_im", "Im"),
@@ -87,23 +92,25 @@ def _hermitian_state(mode_names: tuple[str, ...]):
         for i, j in pair_indices:
             index = len(specs)
             left, right = mode_names[i], mode_names[j]
-            specs.append(StateVariableSpec(
-                id=f"{prefix}_{i}_{j}",
-                index=index,
-                symbol=sp.Symbol(f"x{index}", real=True),
-                latex_name=rf"\operatorname{{{latex_kind}}}(R_{{{left}{right}}})",
-                kind=kind,
-                matrix_index=(i, j),
-                mode_names=(left, right),
-            ))
+            specs.append(
+                StateVariableSpec(
+                    id=f"{prefix}_{i}_{j}",
+                    index=index,
+                    symbol=sp.Symbol(f"x{index}", real=True),
+                    latex_name=rf"\operatorname{{{latex_kind}}}(R_{{{left}{right}}})",
+                    kind=kind,
+                    matrix_index=(i, j),
+                    mode_names=(left, right),
+                )
+            )
 
     R = sp.zeros(n)
     for item in specs[:n]:
         i, _ = item.matrix_index
         R[i, i] = item.symbol
     pair_count = len(pair_indices)
-    real_specs = specs[n:n + pair_count]
-    imag_specs = specs[n + pair_count:]
+    real_specs = specs[n : n + pair_count]
+    imag_specs = specs[n + pair_count :]
     for (i, j), real_item, imag_item in zip(
         pair_indices, real_specs, imag_specs, strict=True
     ):
@@ -118,12 +125,9 @@ def _formal_conjugate(expr: sp.Expr, variables, real_symbols=()) -> sp.Expr:
     """Conjugate an expression and map each phase variable to its partner."""
     partner_map = conjugate_variable_map(tuple(variables))
     replacements = {
-        sp.conjugate(variable): partner
-        for variable, partner in partner_map.items()
+        sp.conjugate(variable): partner for variable, partner in partner_map.items()
     }
-    replacements.update({
-        sp.conjugate(symbol): symbol for symbol in real_symbols
-    })
+    replacements.update({sp.conjugate(symbol): symbol for symbol in real_symbols})
     return sp.simplify(sp.conjugate(expr).xreplace(replacements))
 
 
@@ -134,18 +138,14 @@ def _formal_conjugate_matrix(matrix, variables, real_symbols=()) -> sp.Matrix:
 
 
 def _exchange_matrix(n: int) -> sp.Matrix:
-    return sp.zeros(n).row_join(sp.eye(n)).col_join(
-        sp.eye(n).row_join(sp.zeros(n))
-    )
+    return sp.zeros(n).row_join(sp.eye(n)).col_join(sp.eye(n).row_join(sp.zeros(n)))
 
 
 def _augmented_second_moment_state(mode_names: tuple[str, ...]):
     """Build Hermitian ``R_tilde=<z z^dagger>`` from normal ``R`` and ``C``."""
     R, normal_specs, pair_indices, pair_order = _hermitian_state(mode_names)
     n = len(mode_names)
-    symmetric_indices = tuple(
-        (i, j) for i in range(n) for j in range(i, n)
-    )
+    symmetric_indices = tuple((i, j) for i in range(n) for j in range(i, n))
     specs = list(normal_specs)
     real_anomalous = []
     imag_anomalous = []
@@ -175,9 +175,7 @@ def _augmented_second_moment_state(mode_names: tuple[str, ...]):
         value = real_item.symbol + sp.I * imag_item.symbol
         C[i, j] = value
         C[j, i] = value
-    augmented = R.row_join(C).col_join(
-        C.conjugate().row_join(R.conjugate())
-    )
+    augmented = R.row_join(C).col_join(C.conjugate().row_join(R.conjugate()))
     return (
         R,
         C,
@@ -223,12 +221,8 @@ def _close_augmented_bilinears(
             axes = [i for i, power in enumerate(powers[:n]) for _ in range(power)]
             closed += coefficient * anomalous_moment[axes[0], axes[1]]
         elif partner_degree == 2:
-            axes = [
-                i for i, power in enumerate(powers[n:]) for _ in range(power)
-            ]
-            closed += coefficient * sp.conjugate(
-                anomalous_moment[axes[0], axes[1]]
-            )
+            axes = [i for i, power in enumerate(powers[n:]) for _ in range(power)]
+            closed += coefficient * sp.conjugate(anomalous_moment[axes[0], axes[1]])
         elif alpha_degree == partner_degree == 1:
             i = next(i for i, power in enumerate(powers[:n]) if power)
             j = next(i for i, power in enumerate(powers[n:]) if power)
@@ -256,14 +250,10 @@ def _close_augmented_matrix(
 def _independent_second_moment_state(mode_names: tuple[str, ...]):
     """Build a complex-symmetric ``S=<z z^T>`` for independent partners."""
     labels = tuple(
-        f"{family}_{mode}"
-        for family in ("alpha", "beta")
-        for mode in mode_names
+        f"{family}_{mode}" for family in ("alpha", "beta") for mode in mode_names
     )
     d = len(labels)
-    symmetric_indices = tuple(
-        (i, j) for i in range(d) for j in range(i, d)
-    )
+    symmetric_indices = tuple((i, j) for i in range(d) for j in range(i, d))
     specs = []
     real_specs = []
     imag_specs = []
@@ -407,9 +397,7 @@ def _parameter_specs(parameters, overrides=None) -> tuple[ParameterSpec, ...]:
     specs = []
     for index, symbol in enumerate(parameters):
         if not isinstance(symbol, sp.Symbol):
-            raise NumericalModelError(
-                f"Parameter {symbol!r} is not a SymPy Symbol."
-            )
+            raise NumericalModelError(f"Parameter {symbol!r} is not a SymPy Symbol.")
         domain = _parameter_domain(symbol, overrides)
         if domain == "unknown":
             raise NumericalModelError(
@@ -420,15 +408,17 @@ def _parameter_specs(parameters, overrides=None) -> tuple[ParameterSpec, ...]:
             raise NumericalModelError(
                 f"Unsupported real-kernel domain {domain!r} for parameter {symbol}."
             )
-        specs.append(ParameterSpec(
-            id=f"p{index}",
-            index=index,
-            symbol=symbol,
-            kernel_symbol=sp.Symbol(f"p{index}", real=True),
-            name=str(symbol),
-            latex_name=sp.latex(symbol),
-            domain=domain,
-        ))
+        specs.append(
+            ParameterSpec(
+                id=f"p{index}",
+                index=index,
+                symbol=symbol,
+                kernel_symbol=sp.Symbol(f"p{index}", real=True),
+                name=str(symbol),
+                latex_name=sp.latex(symbol),
+                domain=domain,
+            )
+        )
     return tuple(specs)
 
 
@@ -436,11 +426,13 @@ def _enforce_real_parameter_domains(matrix, specs) -> sp.Matrix:
     replacements = {}
     for item in specs:
         if item.domain in {"real", "positive", "nonnegative"}:
-            replacements.update({
-                sp.conjugate(item.symbol): item.symbol,
-                sp.re(item.symbol): item.symbol,
-                sp.im(item.symbol): sp.Integer(0),
-            })
+            replacements.update(
+                {
+                    sp.conjugate(item.symbol): item.symbol,
+                    sp.re(item.symbol): item.symbol,
+                    sp.im(item.symbol): sp.Integer(0),
+                }
+            )
     return sp.Matrix(matrix).xreplace(replacements).applyfunc(sp.simplify)
 
 
@@ -503,7 +495,9 @@ class AugmentedLangevinBlocks:
     diffusion_structure_residual: sp.Matrix
 
     @classmethod
-    def from_langevin(cls, langevin, *, real_parameters=None) -> AugmentedLangevinBlocks:
+    def from_langevin(
+        cls, langevin, *, real_parameters=None
+    ) -> AugmentedLangevinBlocks:
         if langevin.representation == "positive-p":
             raise CovarianceClosureError(
                 "Conjugate augmented blocks require Wigner, P, or Q variables; "
@@ -523,22 +517,25 @@ class AugmentedLangevinBlocks:
             )
         if real_parameters is None:
             phase_set = set(variables)
-            real_parameters = set().union(*(
-                entry.free_symbols
-                for entry in (
-                    tuple(raw_hamiltonian)
-                    + tuple(langevin.diffusion)
-                    + tuple(langevin.drift)
+            real_parameters = (
+                set().union(
+                    *(
+                        entry.free_symbols
+                        for entry in (
+                            tuple(raw_hamiltonian)
+                            + tuple(langevin.diffusion)
+                            + tuple(langevin.drift)
+                        )
+                    )
                 )
-            )) - phase_set
+                - phase_set
+            )
         real_parameters = tuple(real_parameters)
         H = raw_hamiltonian[:n, :n]
         V = raw_hamiltonian[:n, n:]
         H_bar = _formal_conjugate_matrix(H, variables, real_parameters)
         V_bar = _formal_conjugate_matrix(V, variables, real_parameters)
-        augmented_hamiltonian = H.row_join(V).col_join(
-            (-V_bar).row_join(-H_bar)
-        )
+        augmented_hamiltonian = H.row_join(V).col_join((-V_bar).row_join(-H_bar))
         hamiltonian_structure_residual = _simplified_matrix(
             raw_hamiltonian - augmented_hamiltonian
         )
@@ -562,9 +559,7 @@ class AugmentedLangevinBlocks:
         D = transpose_diffusion[:n, n:]
         M_bar = _formal_conjugate_matrix(M, variables, real_parameters)
         D_bar = _formal_conjugate_matrix(D, variables, real_parameters)
-        expected_transpose = M.row_join(D).col_join(
-            D.T.row_join(M_bar)
-        )
+        expected_transpose = M.row_join(D).col_join(D.T.row_join(M_bar))
         diffusion_structure_residual = _simplified_matrix(
             transpose_diffusion - expected_transpose
         )
@@ -580,9 +575,7 @@ class AugmentedLangevinBlocks:
                 f"full residual: {diffusion_structure_residual}, "
                 f"D-D^dagger: {normal_residual}, M-M^T: {anomalous_residual}."
             )
-        augmented_diffusion = D.row_join(M).col_join(
-            M_bar.row_join(D_bar)
-        )
+        augmented_diffusion = D.row_join(M).col_join(M_bar.row_join(D_bar))
         exchange = _exchange_matrix(n)
         conversion_residual = _simplified_matrix(
             transpose_diffusion * exchange - augmented_diffusion
@@ -714,19 +707,16 @@ class CovarianceDynamics:
         covariance, state_spec, pair_indices, pair_order = _hermitian_state(modes)
         phase_variables = tuple(langevin.variables)
         if closure_policy == "exact":
-            phase_dependence = set().union(*(
-                entry.free_symbols
-                for entry in tuple(langevin.physical_hamiltonian)
-            )) & set(phase_variables)
+            phase_dependence = set().union(
+                *(entry.free_symbols for entry in tuple(langevin.physical_hamiltonian))
+            ) & set(phase_variables)
             if phase_dependence:
                 raise CovarianceClosureError(
                     "Exact second-moment closure requires a state-independent "
                     "Hamiltonian block; use closure='factorized_bilinear' to "
                     "request the explicit nonlinear moment substitution."
                 )
-        H = _close_matrix(
-            langevin.physical_hamiltonian, phase_variables, covariance
-        )
+        H = _close_matrix(langevin.physical_hamiltonian, phase_variables, covariance)
         D = _close_matrix(langevin.normal_correlation, phase_variables, covariance)
 
         explicit = parameters is not None
@@ -740,9 +730,7 @@ class CovarianceDynamics:
         )
         if explicit:
             rhs_matrix = _enforce_real_parameter_domains(rhs_matrix, specs)
-        hermitian_residual = _simplified_matrix(
-            rhs_matrix - rhs_matrix.conjugate().T
-        )
+        hermitian_residual = _simplified_matrix(rhs_matrix - rhs_matrix.conjugate().T)
         if explicit:
             hermitian_residual = _enforce_real_parameter_domains(
                 hermitian_residual, specs
@@ -766,21 +754,24 @@ class CovarianceDynamics:
             parameters = tuple(sorted(free, key=sp.default_sort_key))
             # Inferred parameters are metadata for display only.  Their unknown
             # assumptions must not prevent construction of the symbolic flow.
-            specs = tuple(ParameterSpec(
-                id=f"p{index}",
-                index=index,
-                symbol=symbol,
-                kernel_symbol=sp.Symbol(f"p{index}", real=True),
-                name=str(symbol),
-                latex_name=sp.latex(symbol),
-                domain=_parameter_domain(symbol, {}),
-            ) for index, symbol in enumerate(parameters))
+            specs = tuple(
+                ParameterSpec(
+                    id=f"p{index}",
+                    index=index,
+                    symbol=symbol,
+                    kernel_symbol=sp.Symbol(f"p{index}", real=True),
+                    name=str(symbol),
+                    latex_name=sp.latex(symbol),
+                    domain=_parameter_domain(symbol, {}),
+                )
+                for index, symbol in enumerate(parameters)
+            )
         else:
             state_symbols = {item.symbol for item in state_spec}
             exported = tuple(rhs) + tuple(H) + tuple(D)
-            free = set().union(
-                *(entry.free_symbols for entry in exported)
-            ) - state_symbols
+            free = (
+                set().union(*(entry.free_symbols for entry in exported)) - state_symbols
+            )
             declared = {item.symbol for item in specs}
             missing = free - declared
             extra = declared - free
@@ -890,9 +881,7 @@ class CovarianceDynamics:
     ) -> sp.Matrix:
         """Contract an exact mixed derivative without materializing its tensor."""
         state_directions = tuple(sp.Matrix(item) for item in state_directions)
-        parameter_directions = tuple(
-            sp.Matrix(item) for item in parameter_directions
-        )
+        parameter_directions = tuple(sp.Matrix(item) for item in parameter_directions)
         if order < 1 or len(state_directions) + len(parameter_directions) != order:
             raise NumericalModelError(
                 "order must equal the number of state and parameter directions."
@@ -962,10 +951,7 @@ class CovarianceDynamics:
             state=self.state_spec,
             parameters=self.parameter_spec,
             expressions=(
-                tuple(rhs)
-                + tuple(covariance)
-                + tuple(hamiltonian)
-                + tuple(diffusion)
+                tuple(rhs) + tuple(covariance) + tuple(hamiltonian) + tuple(diffusion)
             ),
             provenance=provenance,
         )
@@ -981,27 +967,62 @@ class CovarianceDynamics:
             jacobian_sparsity=matrix_sparsity(jacobian),
             provenance=provenance,
             fingerprint=fingerprint,
-            covariance=covariance,
+            state_matrix=covariance,
             hamiltonian=hamiltonian,
             diffusion=diffusion,
         )
 
-    def find_linear_reductions(
+    def search_linear_reductions(
         self,
         *,
         retained_dimension: int = 1,
-        max_candidates: int | None = None,
+        retained_ids: tuple[str, ...] | None = None,
         equation_partitions: str = "all",
-    ) -> tuple[LinearReductionCandidate, ...]:
+        partition_limit: int | None = None,
+        materialization_limit: int | None = None,
+        return_limit: int | None = None,
+    ) -> ReductionSearchResult:
+        """Search regular affine reductions with explicit work and coverage limits."""
         n = len(self.coordinates)
         if not 1 <= retained_dimension < n:
             raise ReductionError("retained_dimension must lie between 1 and n-1.")
         if equation_partitions not in {"all", "matching"}:
-            raise ReductionError(
-                "equation_partitions must be 'all' or 'matching'."
-            )
+            raise ReductionError("equation_partitions must be 'all' or 'matching'.")
+        retained_options = combinations(range(n), retained_dimension)
+        if retained_ids is not None:
+            if len(retained_ids) != retained_dimension:
+                raise ReductionError(
+                    "retained_ids length must equal retained_dimension."
+                )
+            if len(set(retained_ids)) != len(retained_ids):
+                raise ReductionError("retained_ids must be unique.")
+            lookup = {item.id: item.index for item in self.state_spec}
+            try:
+                retained_options = (tuple(lookup[item] for item in retained_ids),)
+            except KeyError as exc:
+                raise ReductionError(
+                    f"Unknown retained state ID {exc.args[0]!r}."
+                ) from exc
+        for name, limit in (
+            ("partition_limit", partition_limit),
+            ("materialization_limit", materialization_limit),
+            ("return_limit", return_limit),
+        ):
+            if limit is not None and limit < 1:
+                raise ReductionError(f"{name} must be positive when provided.")
         candidates = []
-        for retained in combinations(range(n), retained_dimension):
+        rejected: Counter[str] = Counter()
+        examined_state_partitions = 0
+        examined_equation_partitions = 0
+        partition_budget_reached = False
+        for retained in retained_options:
+            if (
+                partition_limit is not None
+                and examined_equation_partitions >= partition_limit
+            ):
+                partition_budget_reached = True
+                break
+            examined_state_partitions += 1
             eliminated = tuple(i for i in range(n) if i not in retained)
             y = sp.Matrix([self.coordinates[i] for i in eliminated])
             equation_options = (
@@ -1010,6 +1031,13 @@ class CovarianceDynamics:
                 else combinations(range(n), retained_dimension)
             )
             for retained_equations in equation_options:
+                if (
+                    partition_limit is not None
+                    and examined_equation_partitions >= partition_limit
+                ):
+                    partition_budget_reached = True
+                    break
+                examined_equation_partitions += 1
                 eliminated_equations = tuple(
                     i for i in range(n) if i not in retained_equations
                 )
@@ -1019,15 +1047,15 @@ class CovarianceDynamics:
                 b = h.subs(zero_y)
                 residual = (h - A * y - b).applyfunc(sp.simplify)
                 if residual != sp.zeros(len(eliminated), 1):
+                    rejected["non_affine_eliminated_block"] += 1
                     continue
                 pattern = matrix_sparsity(A)
                 structural_rank = _structural_rank(pattern)
                 if structural_rank < len(eliminated):
+                    rejected["structurally_rank_deficient"] += 1
                     continue
                 retained_symbols = tuple(self.coordinates[i] for i in retained)
-                retained_residual = tuple(
-                    self.rhs[i] for i in retained_equations
-                )
+                retained_residual = tuple(self.rhs[i] for i in retained_equations)
                 degree = _degree_estimate(
                     tuple(A) + tuple(b) + retained_residual,
                     retained_symbols,
@@ -1036,29 +1064,50 @@ class CovarianceDynamics:
                     int(sp.count_ops(expr))
                     for expr in tuple(A) + tuple(b) + retained_residual
                 )
-                candidates.append(LinearReductionCandidate(
-                    retained_indices=retained,
-                    retained_ids=tuple(self.state_spec[i].id for i in retained),
-                    retained_equations=tuple(retained_equations),
-                    eliminated_indices=eliminated,
-                    eliminated_ids=tuple(
-                        self.state_spec[i].id for i in eliminated
-                    ),
-                    eliminated_equations=eliminated_equations,
-                    A_sparsity=pattern,
-                    structural_rank=structural_rank,
-                    required_rank=len(eliminated),
-                    operation_count=operation_count,
-                    degree_estimate=degree,
-                    reduced_degree=None,
-                    denominator_operation_count=None,
-                    diagnostics=(),
-                ))
+                candidates.append(
+                    LinearReductionCandidate(
+                        retained_indices=retained,
+                        retained_ids=tuple(self.state_spec[i].id for i in retained),
+                        retained_equations=tuple(retained_equations),
+                        eliminated_indices=eliminated,
+                        eliminated_ids=tuple(self.state_spec[i].id for i in eliminated),
+                        eliminated_equations=eliminated_equations,
+                        A_sparsity=pattern,
+                        structural_rank=structural_rank,
+                        required_rank=len(eliminated),
+                        operation_count=operation_count,
+                        degree_estimate=degree,
+                        reduced_degree=None,
+                        denominator_operation_count=None,
+                        diagnostics=(),
+                    )
+                )
+            if partition_budget_reached:
+                break
+        candidates.sort(
+            key=lambda item: (
+                item.operation_count,
+                item.A_sparsity.nnz,
+                item.degree_estimate if item.degree_estimate is not None else 10**9,
+                item.retained_indices,
+                item.retained_equations,
+            )
+        )
         enriched = []
+        materialization_attempts = 0
+        materialization_skipped = 0
         for candidate in candidates:
             if len(candidate.eliminated_indices) > 3:
                 enriched.append(candidate)
                 continue
+            if (
+                materialization_limit is not None
+                and materialization_attempts >= materialization_limit
+            ):
+                materialization_skipped += 1
+                enriched.append(candidate)
+                continue
+            materialization_attempts += 1
             try:
                 materialized = LinearReductionPlan.from_candidate(
                     self, candidate
@@ -1066,7 +1115,9 @@ class CovarianceDynamics:
                 reduced_degree = None
                 if len(candidate.retained_indices) == 1:
                     reduced_degree = max(
-                        sp.Poly(expr, self.coordinates[candidate.retained_indices[0]]).degree()
+                        sp.Poly(
+                            expr, self.coordinates[candidate.retained_indices[0]]
+                        ).degree()
                         for expr in materialized.numerators
                     )
                 denominator_cost = sum(
@@ -1078,22 +1129,50 @@ class CovarianceDynamics:
                     denominator_operation_count=denominator_cost,
                 )
             except (ReductionError, sp.PolynomialError):
-                pass
+                rejected["materialization_failed"] += 1
             enriched.append(candidate)
         candidates = enriched
-        candidates.sort(key=lambda item: (
-            item.structural_rank < item.required_rank,
-            item.operation_count,
-            item.A_sparsity.nnz,
-            item.reduced_degree if item.reduced_degree is not None else 10**9,
-            item.denominator_operation_count
-            if item.denominator_operation_count is not None else 10**9,
-            item.degree_estimate if item.degree_estimate is not None else 10**9,
-            item.retained_indices,
-        ))
-        if max_candidates is not None:
-            candidates = candidates[:max_candidates]
-        return tuple(candidates)
+        candidates.sort(
+            key=lambda item: (
+                item.structural_rank < item.required_rank,
+                item.operation_count,
+                item.A_sparsity.nnz,
+                item.reduced_degree if item.reduced_degree is not None else 10**9,
+                item.denominator_operation_count
+                if item.denominator_operation_count is not None
+                else 10**9,
+                item.degree_estimate if item.degree_estimate is not None else 10**9,
+                item.retained_indices,
+            )
+        )
+        candidate_count = len(candidates)
+        returned_prefix = return_limit is not None and candidate_count > return_limit
+        if return_limit is not None:
+            candidates = candidates[:return_limit]
+        coverage = "budget_limited" if partition_budget_reached else "exhaustive"
+        truncation_reasons = []
+        if partition_budget_reached:
+            truncation_reasons.append("partition_limit")
+        if materialization_skipped:
+            truncation_reasons.append("materialization_limit")
+        if returned_prefix:
+            truncation_reasons.append("return_limit")
+        return ReductionSearchResult(
+            candidates=tuple(candidates),
+            coverage=coverage,
+            regular_branches_only=True,
+            retained_dimension=retained_dimension,
+            requested_retained_ids=retained_ids,
+            equation_partitions=equation_partitions,
+            examined_state_partitions=examined_state_partitions,
+            examined_equation_partitions=examined_equation_partitions,
+            candidate_count=candidate_count,
+            materialization_attempts=materialization_attempts,
+            materialization_skipped=materialization_skipped,
+            returned_prefix=returned_prefix,
+            truncation_reasons=tuple(truncation_reasons),
+            rejected_reason_counts=tuple(sorted(rejected.items())),
+        )
 
     def linear_reduce(
         self,
@@ -1111,11 +1190,14 @@ class CovarianceDynamics:
             try:
                 retained = tuple(lookup[item] for item in order_parameters)
             except KeyError as exc:
-                raise ReductionError(f"Unknown order parameter {exc.args[0]!r}.") from exc
+                raise ReductionError(
+                    f"Unknown order parameter {exc.args[0]!r}."
+                ) from exc
             matches = [
-                item for item in self.find_linear_reductions(
+                item
+                for item in self.search_linear_reductions(
                     retained_dimension=len(retained)
-                )
+                ).candidates
                 if item.retained_indices == retained
             ]
             if not matches:
@@ -1164,10 +1246,9 @@ class AugmentedSecondMomentDynamics(CovarianceDynamics):
         phase_variables = tuple(langevin.variables)
 
         if closure_policy == "exact":
-            phase_dependence = set().union(*(
-                entry.free_symbols
-                for entry in tuple(blocks.augmented_hamiltonian)
-            )) & set(phase_variables)
+            phase_dependence = set().union(
+                *(entry.free_symbols for entry in tuple(blocks.augmented_hamiltonian))
+            ) & set(phase_variables)
             if phase_dependence:
                 raise CovarianceClosureError(
                     "Exact second-moment closure requires a state-independent "
@@ -1202,9 +1283,7 @@ class AugmentedSecondMomentDynamics(CovarianceDynamics):
         )
         if explicit:
             rhs_matrix = _enforce_real_parameter_domains(rhs_matrix, parameter_spec)
-        hermitian_residual = _simplified_matrix(
-            rhs_matrix - rhs_matrix.conjugate().T
-        )
+        hermitian_residual = _simplified_matrix(rhs_matrix - rhs_matrix.conjugate().T)
         if explicit:
             hermitian_residual = _enforce_real_parameter_domains(
                 hermitian_residual, parameter_spec
@@ -1217,9 +1296,7 @@ class AugmentedSecondMomentDynamics(CovarianceDynamics):
 
         R_flow = rhs_matrix[:n, :n]
         C_flow = rhs_matrix[:n, n:]
-        normal_symmetry_residual = _simplified_matrix(
-            R_flow - R_flow.conjugate().T
-        )
+        normal_symmetry_residual = _simplified_matrix(R_flow - R_flow.conjugate().T)
         if explicit:
             normal_symmetry_residual = _enforce_real_parameter_domains(
                 normal_symmetry_residual, parameter_spec
@@ -1236,12 +1313,8 @@ class AugmentedSecondMomentDynamics(CovarianceDynamics):
         normal_diagonal = tuple(_real_part(R_flow[i, i]) for i in range(n))
         normal_real = tuple(_real_part(R_flow[i, j]) for i, j in pair_indices)
         normal_imag = tuple(_imag_part(R_flow[i, j]) for i, j in pair_indices)
-        anomalous_real = tuple(
-            _real_part(C_flow[i, j]) for i, j in symmetric_indices
-        )
-        anomalous_imag = tuple(
-            _imag_part(C_flow[i, j]) for i, j in symmetric_indices
-        )
+        anomalous_real = tuple(_real_part(C_flow[i, j]) for i, j in symmetric_indices)
+        anomalous_imag = tuple(_imag_part(C_flow[i, j]) for i, j in symmetric_indices)
         rhs = sp.Matrix(
             normal_diagonal
             + normal_real
@@ -1253,21 +1326,29 @@ class AugmentedSecondMomentDynamics(CovarianceDynamics):
             rhs = _enforce_real_parameter_domains(rhs, parameter_spec)
 
         state_symbols = {item.symbol for item in state_spec}
-        free = set().union(*(
-            entry.free_symbols
-            for entry in tuple(rhs) + tuple(H_aug) + tuple(D_aug)
-        )) - state_symbols
+        free = (
+            set().union(
+                *(
+                    entry.free_symbols
+                    for entry in tuple(rhs) + tuple(H_aug) + tuple(D_aug)
+                )
+            )
+            - state_symbols
+        )
         if not explicit:
             inferred = tuple(sorted(free, key=sp.default_sort_key))
-            parameter_spec = tuple(ParameterSpec(
-                id=f"p{index}",
-                index=index,
-                symbol=symbol,
-                kernel_symbol=sp.Symbol(f"p{index}", real=True),
-                name=str(symbol),
-                latex_name=sp.latex(symbol),
-                domain=_parameter_domain(symbol, {}),
-            ) for index, symbol in enumerate(inferred))
+            parameter_spec = tuple(
+                ParameterSpec(
+                    id=f"p{index}",
+                    index=index,
+                    symbol=symbol,
+                    kernel_symbol=sp.Symbol(f"p{index}", real=True),
+                    name=str(symbol),
+                    latex_name=sp.latex(symbol),
+                    domain=_parameter_domain(symbol, {}),
+                )
+                for index, symbol in enumerate(inferred)
+            )
         else:
             declared = {item.symbol for item in parameter_spec}
             if free != declared:
@@ -1319,11 +1400,13 @@ class AugmentedSecondMomentDynamics(CovarianceDynamics):
         n = len(self.modes)
         normal_size = n * n
         anomalous_symbols = set(self.coordinates[normal_size:])
-        dependencies = set().union(*(
-            entry.free_symbols for entry in self.normal_rhs
-        )) & anomalous_symbols
+        dependencies = (
+            set().union(*(entry.free_symbols for entry in self.normal_rhs))
+            & anomalous_symbols
+        )
         projected_formula = _simplified_matrix(
-            -sp.I * (
+            -sp.I
+            * (
                 self.physical_hamiltonian * self.normal_moment
                 - self.normal_moment * self.physical_hamiltonian.conjugate().T
             )
@@ -1333,16 +1416,12 @@ class AugmentedSecondMomentDynamics(CovarianceDynamics):
             projected_formula = _enforce_real_parameter_domains(
                 projected_formula, self.parameter_spec
             )
-        projection_residual = _simplified_matrix(
-            self.normal_rhs - projected_formula
-        )
+        projection_residual = _simplified_matrix(self.normal_rhs - projected_formula)
         if self.parameter_order_explicit:
             projection_residual = _enforce_real_parameter_domains(
                 projection_residual, self.parameter_spec
             )
-        autonomous = (
-            not dependencies and projection_residual == sp.zeros(n)
-        )
+        autonomous = not dependencies and projection_residual == sp.zeros(n)
         reasons = []
         if dependencies:
             reasons.append("normal flow depends on anomalous coordinates")
@@ -1354,9 +1433,7 @@ class AugmentedSecondMomentDynamics(CovarianceDynamics):
             requested_layout=requested_layout,
             selected_layout="normal" if autonomous else "augmented",
             normal_autonomous=autonomous,
-            anomalous_dependencies=tuple(
-                sorted(map(str, dependencies))
-            ),
+            anomalous_dependencies=tuple(sorted(map(str, dependencies))),
             projection_residual=projection_residual,
             reasons=tuple(reasons),
         )
@@ -1368,9 +1445,7 @@ class AugmentedSecondMomentDynamics(CovarianceDynamics):
                 "The augmented dynamics cannot be reduced to the normal block: "
                 + "; ".join(decision.reasons)
             )
-        return CovarianceDynamics.from_augmented(
-            self, layout_decision=decision
-        )
+        return CovarianceDynamics.from_augmented(self, layout_decision=decision)
 
     @property
     def provenance(self) -> DerivationProvenance:
@@ -1441,9 +1516,10 @@ class IndependentSecondMomentDynamics(CovarianceDynamics):
         raw_diffusion = sp.Matrix(langevin.diffusion)
         phase_variable_set = set(variables)
         if closure_policy == "exact":
-            phase_dependence = set().union(*(
-                entry.free_symbols for entry in raw_hamiltonian
-            )) & phase_variable_set
+            phase_dependence = (
+                set().union(*(entry.free_symbols for entry in raw_hamiltonian))
+                & phase_variable_set
+            )
             if phase_dependence:
                 raise CovarianceClosureError(
                     "Exact independent second-moment closure requires a "
@@ -1459,9 +1535,7 @@ class IndependentSecondMomentDynamics(CovarianceDynamics):
             parameter_spec = _parameter_specs(parameters, parameter_domains)
             H = _enforce_real_parameter_domains(H, parameter_spec)
             G = _enforce_real_parameter_domains(G, parameter_spec)
-        rhs_matrix = _simplified_matrix(
-            -sp.I * (H * S + S * H.T) + G
-        )
+        rhs_matrix = _simplified_matrix(-sp.I * (H * S + S * H.T) + G)
         if explicit:
             rhs_matrix = _enforce_real_parameter_domains(rhs_matrix, parameter_spec)
         symmetry_residual = _simplified_matrix(rhs_matrix - rhs_matrix.T)
@@ -1470,32 +1544,33 @@ class IndependentSecondMomentDynamics(CovarianceDynamics):
                 "The positive-P second-moment flow is not complex symmetric; "
                 f"residual: {symmetry_residual}."
             )
-        real_flow = tuple(
-            _real_part(rhs_matrix[i, j]) for i, j in symmetric_indices
-        )
-        imag_flow = tuple(
-            _imag_part(rhs_matrix[i, j]) for i, j in symmetric_indices
-        )
+        real_flow = tuple(_real_part(rhs_matrix[i, j]) for i, j in symmetric_indices)
+        imag_flow = tuple(_imag_part(rhs_matrix[i, j]) for i, j in symmetric_indices)
         rhs = sp.Matrix(real_flow + imag_flow)
         if explicit:
             rhs = _enforce_real_parameter_domains(rhs, parameter_spec)
 
         state_symbols = {item.symbol for item in state_spec}
-        free = set().union(*(
-            entry.free_symbols
-            for entry in tuple(rhs) + tuple(H) + tuple(G)
-        )) - state_symbols
+        free = (
+            set().union(
+                *(entry.free_symbols for entry in tuple(rhs) + tuple(H) + tuple(G))
+            )
+            - state_symbols
+        )
         if not explicit:
             inferred = tuple(sorted(free, key=sp.default_sort_key))
-            parameter_spec = tuple(ParameterSpec(
-                id=f"p{index}",
-                index=index,
-                symbol=symbol,
-                kernel_symbol=sp.Symbol(f"p{index}", real=True),
-                name=str(symbol),
-                latex_name=sp.latex(symbol),
-                domain=_parameter_domain(symbol, {}),
-            ) for index, symbol in enumerate(inferred))
+            parameter_spec = tuple(
+                ParameterSpec(
+                    id=f"p{index}",
+                    index=index,
+                    symbol=symbol,
+                    kernel_symbol=sp.Symbol(f"p{index}", real=True),
+                    name=str(symbol),
+                    latex_name=sp.latex(symbol),
+                    domain=_parameter_domain(symbol, {}),
+                )
+                for index, symbol in enumerate(inferred)
+            )
         else:
             declared = {item.symbol for item in parameter_spec}
             if free != declared:
@@ -1505,7 +1580,7 @@ class IndependentSecondMomentDynamics(CovarianceDynamics):
                     f"got {sorted(map(str, declared))}."
                 )
 
-        labels = tuple(item.mode_names for item in state_spec[:len(symmetric_indices)])
+        labels = tuple(item.mode_names for item in state_spec[: len(symmetric_indices)])
         result = cls(
             representation=langevin.representation,
             modes=modes,
@@ -1595,6 +1670,54 @@ class LinearReductionCandidate:
 
 
 @dataclass(frozen=True)
+class ReductionSearchResult:
+    """Candidates plus an auditable account of regular-branch search coverage."""
+
+    candidates: tuple[LinearReductionCandidate, ...]
+    coverage: str
+    regular_branches_only: bool
+    retained_dimension: int
+    requested_retained_ids: tuple[str, ...] | None
+    equation_partitions: str
+    examined_state_partitions: int
+    examined_equation_partitions: int
+    candidate_count: int
+    materialization_attempts: int
+    materialization_skipped: int
+    returned_prefix: bool
+    truncation_reasons: tuple[str, ...]
+    rejected_reason_counts: tuple[tuple[str, int], ...]
+
+    @property
+    def complete(self) -> bool:
+        return not self.truncation_reasons
+
+    def manifest(self) -> dict[str, object]:
+        return {
+            "api_version": REDUCTION_API_VERSION,
+            "coverage": self.coverage,
+            "complete": self.complete,
+            "regular_branches_only": self.regular_branches_only,
+            "retained_dimension": self.retained_dimension,
+            "requested_retained_ids": (
+                None
+                if self.requested_retained_ids is None
+                else list(self.requested_retained_ids)
+            ),
+            "equation_partitions": self.equation_partitions,
+            "examined_state_partitions": self.examined_state_partitions,
+            "examined_equation_partitions": self.examined_equation_partitions,
+            "candidate_count": self.candidate_count,
+            "returned_count": len(self.candidates),
+            "materialization_attempts": self.materialization_attempts,
+            "materialization_skipped": self.materialization_skipped,
+            "returned_prefix": self.returned_prefix,
+            "truncation_reasons": list(self.truncation_reasons),
+            "rejected_reason_counts": dict(self.rejected_reason_counts),
+        }
+
+
+@dataclass(frozen=True)
 class LinearReductionPlan:
     """Exact affine elimination structure ``h(q,y,p) = A(q,p)y + b(q,p)``."""
 
@@ -1623,9 +1746,9 @@ class LinearReductionPlan:
                 "The selected eliminated equations are not affine in the "
                 f"eliminated state; residual is {residual}."
             )
-        retained_residual = sp.Matrix([
-            dynamics.rhs[i] for i in candidate.retained_equations
-        ])
+        retained_residual = sp.Matrix(
+            [dynamics.rhs[i] for i in candidate.retained_equations]
+        )
         return cls(
             dynamics=dynamics,
             candidate=candidate,
@@ -1661,12 +1784,12 @@ class LinearReductionPlan:
                 "The elimination block has no unique symbolic solution on the "
                 "regular branch."
             )
-        eliminated_solution = sp.Matrix([
-            sp.factor(solution[symbol]) for symbol in self.eliminated_symbols
-        ])
-        substitution = dict(zip(
-            self.eliminated_symbols, eliminated_solution, strict=True
-        ))
+        eliminated_solution = sp.Matrix(
+            [sp.factor(solution[symbol]) for symbol in self.eliminated_symbols]
+        )
+        substitution = dict(
+            zip(self.eliminated_symbols, eliminated_solution, strict=True)
+        )
         reduced = self.retained_residual.subs(substitution).applyfunc(
             lambda expr: sp.factor(sp.cancel(expr))
         )
@@ -1719,16 +1842,20 @@ class MaterializedReduction:
     def reconstruct_full_state(self) -> sp.Matrix:
         """Reconstruct the full state in the canonical fpgen ordering."""
         values = {}
-        values.update(zip(
-            self.plan.candidate.retained_indices,
-            self.plan.retained_symbols,
-            strict=True,
-        ))
-        values.update(zip(
-            self.plan.candidate.eliminated_indices,
-            self.eliminated_solution,
-            strict=True,
-        ))
+        values.update(
+            zip(
+                self.plan.candidate.retained_indices,
+                self.plan.retained_symbols,
+                strict=True,
+            )
+        )
+        values.update(
+            zip(
+                self.plan.candidate.eliminated_indices,
+                self.eliminated_solution,
+                strict=True,
+            )
+        )
         return sp.Matrix([values[i] for i in range(len(values))])
 
     def validation_residual(self) -> sp.Matrix:
@@ -1775,16 +1902,16 @@ class HermitianCovarianceJacobian:
             )
         display_coordinates = tuple(
             _display_coordinate(
-                "diag" if item.kind == "diag" else (
-                    "Re" if item.kind == "offdiag_re" else "Im"
-                ),
+                "diag"
+                if item.kind == "diag"
+                else ("Re" if item.kind == "offdiag_re" else "Im"),
                 *item.mode_names,
             )
             for item in dynamics.state_spec
         )
-        substitutions = dict(zip(
-            dynamics.coordinates, display_coordinates, strict=True
-        ))
+        substitutions = dict(
+            zip(dynamics.coordinates, display_coordinates, strict=True)
+        )
         convert = lambda matrix: sp.Matrix(matrix).xreplace(substitutions)
         return cls(
             modes=dynamics.modes,
@@ -1820,11 +1947,13 @@ class HermitianCovarianceJacobian:
         )
 
     def to_latex(self) -> str:
-        return r" \\ ".join([
-            r"\mathbf r = " + sp.latex(sp.Matrix(self.coordinates)),
-            r"\dot{\mathbf r} = " + sp.latex(self.flow_vector),
-            r"\mathbf J(\mathbf R) = " + sp.latex(self.jacobian),
-        ])
+        return r" \\ ".join(
+            [
+                r"\mathbf r = " + sp.latex(sp.Matrix(self.coordinates)),
+                r"\dot{\mathbf r} = " + sp.latex(self.flow_vector),
+                r"\mathbf J(\mathbf R) = " + sp.latex(self.jacobian),
+            ]
+        )
 
     def _repr_latex_(self) -> str:
         return f"${self.to_latex()}$"

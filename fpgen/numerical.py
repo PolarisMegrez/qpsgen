@@ -7,9 +7,9 @@ NumPy reference module can be generated explicitly for downstream validation.
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
 from hashlib import sha256
-import json
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,8 @@ from sympy.printing.numpy import NumPyPrinter
 from fpgen.errors import NumericalModelError
 
 __all__ = [
+    "MOMENT_DYNAMICS_API_VERSION",
+    "REDUCTION_API_VERSION",
     "MODEL_SCHEMA_VERSION",
     "STATE_LAYOUT_VERSION",
     "AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION",
@@ -29,14 +31,15 @@ __all__ = [
     "DerivationProvenance",
     "NumericalModelSpec",
     "MomentDynamicsSpec",
+    "CompiledMomentDynamics",
 ]
 
 
-MODEL_SCHEMA_VERSION = "1.1"
+MOMENT_DYNAMICS_API_VERSION = "1.0"
+REDUCTION_API_VERSION = "1.0"
+MODEL_SCHEMA_VERSION = "2.0"
 STATE_LAYOUT_VERSION = "hermitian-declared-index-v1"
-AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION = (
-    "hermitian-normal-anomalous-declared-index-v2"
-)
+AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION = "hermitian-normal-anomalous-declared-index-v2"
 INDEPENDENT_SECOND_MOMENT_LAYOUT_VERSION = (
     "independent-complex-symmetric-declared-index-v1"
 )
@@ -74,16 +77,11 @@ class ParameterSpec:
     name: str
     latex_name: str
     domain: str
-    default: float | None = None
-    scale: float | None = None
-    bounds: tuple[float | None, float | None] | None = None
 
     def manifest(self) -> dict[str, Any]:
         data = asdict(self)
         data["symbol"] = str(self.symbol)
         data["kernel_symbol"] = str(self.kernel_symbol)
-        if self.bounds is not None:
-            data["bounds"] = list(self.bounds)
         return data
 
 
@@ -187,6 +185,20 @@ class NumericalModelSpec:
     def parameter_size(self) -> int:
         return len(self.parameters)
 
+    def state_index(self, identifier: str) -> int:
+        """Return the stable flat-array index for a state ID."""
+        for item in self.state:
+            if item.id == identifier:
+                return item.index
+        raise NumericalModelError(f"Unknown state variable {identifier!r}.")
+
+    def parameter_index(self, name: str) -> int:
+        """Return the stable parameter-array index for a parameter name."""
+        for item in self.parameters:
+            if item.name == name:
+                return item.index
+        raise NumericalModelError(f"Unknown parameter {name!r}.")
+
     def manifest(self) -> dict[str, Any]:
         """Return metadata only; executable expressions are intentionally absent."""
         return {
@@ -214,25 +226,79 @@ class NumericalModelSpec:
 
 @dataclass(frozen=True)
 class MomentDynamicsSpec(NumericalModelSpec):
-    """A real moment-dynamics model with optional matrix diagnostics."""
+    """A real moment-dynamics model with a structured state matrix."""
 
-    covariance: sp.Matrix | None = None
+    state_matrix: sp.Matrix | None = None
     hamiltonian: sp.Matrix | None = None
     diffusion: sp.Matrix | None = None
+
+    def __post_init__(self) -> None:
+        if self.state_matrix is None:
+            raise NumericalModelError("Moment dynamics require a state matrix.")
+
+    @property
+    def state_matrix_shape(self) -> tuple[int, int] | None:
+        if self.state_matrix is None:
+            return None
+        return self.state_matrix.rows, self.state_matrix.cols
+
+    @property
+    def matrix_semantics(self) -> str:
+        return {
+            "normal": "normal_second_moment",
+            "augmented": "augmented_second_moment",
+            "independent": "independent_second_moment",
+        }.get(self.provenance.moment_layout, "model_defined")
+
+    @property
+    def matrix_symmetry(self) -> str:
+        return {
+            "normal": "hermitian",
+            "augmented": "hermitian",
+            "independent": "complex_symmetric",
+        }.get(self.provenance.moment_layout, "model_defined")
+
+    @property
+    def physical_domain_hint(self) -> str:
+        return {
+            "normal": "hermitian_psd",
+            "augmented": "hermitian_psd",
+            "independent": "model_defined",
+        }.get(self.provenance.moment_layout, "model_defined")
+
+    @property
+    def capabilities(self) -> frozenset[str]:
+        values = {
+            "rhs",
+            "jacobian",
+            "parameter_jacobian",
+            "jvp",
+            "vjp",
+            "parameter_jvp",
+        }
+        if self.state_matrix is not None:
+            values.add("state_matrix")
+        if self.hamiltonian is not None:
+            values.add("hamiltonian")
+        if self.diffusion is not None:
+            values.add("diffusion")
+        return frozenset(values)
+
+    def supports(self, capability: str) -> bool:
+        return capability in self.capabilities
 
     def manifest(self) -> dict[str, Any]:
         data = super().manifest()
         normal_indices = [
-            item.index for item in self.state
+            item.index
+            for item in self.state
             if item.kind in {"diag", "offdiag_re", "offdiag_im"}
         ]
         anomalous_indices = [
-            item.index for item in self.state
-            if item.kind.startswith("anomalous_")
+            item.index for item in self.state if item.kind.startswith("anomalous_")
         ]
         independent_indices = [
-            item.index for item in self.state
-            if item.kind.startswith("independent_")
+            item.index for item in self.state if item.kind.startswith("independent_")
         ]
         data["moment_layout"] = self.provenance.moment_layout
         data["state_blocks"] = {
@@ -240,16 +306,20 @@ class MomentDynamicsSpec(NumericalModelSpec):
             "anomalous": anomalous_indices,
             "independent": independent_indices,
         }
+        data["api_version"] = MOMENT_DYNAMICS_API_VERSION
+        data["matrix_semantics"] = self.matrix_semantics
+        data["matrix_symmetry"] = self.matrix_symmetry
+        data["physical_domain_hint"] = self.physical_domain_hint
         data["capabilities"] = {
-            "covariance": None if self.covariance is None else [
-                self.covariance.rows, self.covariance.cols
-            ],
-            "hamiltonian": None if self.hamiltonian is None else [
-                self.hamiltonian.rows, self.hamiltonian.cols
-            ],
-            "diffusion": None if self.diffusion is None else [
-                self.diffusion.rows, self.diffusion.cols
-            ],
+            "state_matrix": None
+            if self.state_matrix is None
+            else [self.state_matrix.rows, self.state_matrix.cols],
+            "hamiltonian": None
+            if self.hamiltonian is None
+            else [self.hamiltonian.rows, self.hamiltonian.cols],
+            "diffusion": None
+            if self.diffusion is None
+            else [self.diffusion.rows, self.diffusion.cols],
         }
         return data
 
@@ -261,6 +331,37 @@ class MomentDynamicsSpec(NumericalModelSpec):
         target = Path(path)
         target.write_text(self.numpy_source(), encoding="utf-8")
         return target
+
+    def compile_numpy(self) -> CompiledMomentDynamics:
+        """Compile the generated NumPy reference into a typed callable bundle."""
+        namespace: dict[str, Any] = {}
+        exec(self.numpy_source(), namespace)
+        return CompiledMomentDynamics(
+            model_name=self.name,
+            fingerprint=self.fingerprint,
+            rhs=namespace["rhs"],
+            jacobian=namespace["jacobian"],
+            parameter_jacobian=namespace["parameter_jacobian"],
+            jvp=namespace["jvp"],
+            vjp=namespace["vjp"],
+            parameter_jvp=namespace["parameter_jvp"],
+            state_matrix=namespace.get("state_matrix"),
+        )
+
+
+@dataclass(frozen=True)
+class CompiledMomentDynamics:
+    """Batch-aware NumPy reference callables compiled from one model spec."""
+
+    model_name: str
+    fingerprint: str
+    rhs: Any
+    jacobian: Any
+    parameter_jacobian: Any
+    jvp: Any
+    vjp: Any
+    parameter_jvp: Any
+    state_matrix: Any | None
 
 
 def make_fingerprint(
@@ -294,6 +395,8 @@ def _emit_numpy_function(
     shape: tuple[int, ...],
     state: tuple[StateVariableSpec, ...],
     parameters: tuple[ParameterSpec, ...],
+    *,
+    dtype_name: str = "NUMERIC_DTYPE",
 ) -> list[str]:
     flat = list(matrix)
     replacements, reduced = sp.cse(flat, symbols=sp.numbered_symbols("t"))
@@ -306,22 +409,22 @@ def _emit_numpy_function(
         lines.append(f"    {symbol} = {_numpy_print(expression)}")
     if not reduced:
         lines.append(
-            "    return numpy.empty(_batch_shape + "
-            f"{shape!r}, dtype=NUMERIC_DTYPE)"
+            f"    return numpy.empty(_batch_shape + {shape!r}, dtype={dtype_name})"
         )
         return lines
     lines.append("    _values = [")
     for expression in reduced:
         lines.append(
-            "        numpy.broadcast_to("
-            f"{_numpy_print(expression)}, _batch_shape),"
+            f"        numpy.broadcast_to({_numpy_print(expression)}, _batch_shape),"
         )
-    lines.extend([
-        "    ]",
-        "    _result = numpy.stack(_values, axis=-1).reshape(_batch_shape + "
-        f"{shape!r})",
-        "    return _result.astype(NUMERIC_DTYPE, copy=False)",
-    ])
+    lines.extend(
+        [
+            "    ]",
+            "    _result = numpy.stack(_values, axis=-1).reshape(_batch_shape + "
+            f"{shape!r})",
+            f"    return _result.astype({dtype_name}, copy=False)",
+        ]
+    )
     return lines
 
 
@@ -341,9 +444,15 @@ def _numpy_module_source(spec: MomentDynamicsSpec) -> str:
         f"PARAMETER_SIZE = {spec.parameter_size}",
         f"STATE_NAMES = {tuple(item.id for item in spec.state)!r}",
         f"PARAMETER_NAMES = {tuple(item.name for item in spec.parameters)!r}",
+        f"API_VERSION = {MOMENT_DYNAMICS_API_VERSION!r}",
         f"SCHEMA_VERSION = {spec.schema_version!r}",
         f"STATE_LAYOUT_VERSION = {spec.provenance.state_layout_version!r}",
+        f"MOMENT_LAYOUT = {spec.provenance.moment_layout!r}",
+        f"MATRIX_SEMANTICS = {spec.matrix_semantics!r}",
+        f"MATRIX_SYMMETRY = {spec.matrix_symmetry!r}",
+        f"PHYSICAL_DOMAIN_HINT = {spec.physical_domain_hint!r}",
         "NUMERIC_DTYPE = numpy.float64",
+        "COMPLEX_DTYPE = numpy.complex128",
         "",
         "def _prepare(x, p):",
         "    x = numpy.asarray(x, dtype=NUMERIC_DTYPE)",
@@ -368,28 +477,42 @@ def _numpy_module_source(spec: MomentDynamicsSpec) -> str:
         ),
     )
     for name, matrix, shape in functions:
-        lines.extend(_emit_numpy_function(
-            name, matrix, shape, spec.state, spec.parameters
-        ))
+        lines.extend(
+            _emit_numpy_function(name, matrix, shape, spec.state, spec.parameters)
+        )
         lines.append("")
-    lines.extend([
-        "def jvp(x, p, v):",
-        "    v = numpy.asarray(v)",
-        "    if v.ndim < 1 or v.shape[-1] != STATE_SIZE:",
-        "        raise ValueError(f'v must end with dimension {STATE_SIZE}')",
-        "    return numpy.einsum('...ij,...j->...i', jacobian(x, p), v)",
-        "",
-        "def vjp(x, p, w):",
-        "    w = numpy.asarray(w)",
-        "    if w.ndim < 1 or w.shape[-1] != STATE_SIZE:",
-        "        raise ValueError(f'w must end with dimension {STATE_SIZE}')",
-        "    return numpy.einsum('...i,...ij->...j', w, jacobian(x, p))",
-        "",
-        "def parameter_jvp(x, p, v):",
-        "    v = numpy.asarray(v)",
-        "    if v.ndim < 1 or v.shape[-1] != PARAMETER_SIZE:",
-        "        raise ValueError(f'v must end with dimension {PARAMETER_SIZE}')",
-        "    return numpy.einsum('...ij,...j->...i', parameter_jacobian(x, p), v)",
-        "",
-    ])
+    if spec.state_matrix is not None:
+        lines.extend(
+            _emit_numpy_function(
+                "state_matrix",
+                spec.state_matrix,
+                (spec.state_matrix.rows, spec.state_matrix.cols),
+                spec.state,
+                spec.parameters,
+                dtype_name="COMPLEX_DTYPE",
+            )
+        )
+        lines.append("")
+    lines.extend(
+        [
+            "def jvp(x, p, v):",
+            "    v = numpy.asarray(v)",
+            "    if v.ndim < 1 or v.shape[-1] != STATE_SIZE:",
+            "        raise ValueError(f'v must end with dimension {STATE_SIZE}')",
+            "    return numpy.einsum('...ij,...j->...i', jacobian(x, p), v)",
+            "",
+            "def vjp(x, p, w):",
+            "    w = numpy.asarray(w)",
+            "    if w.ndim < 1 or w.shape[-1] != STATE_SIZE:",
+            "        raise ValueError(f'w must end with dimension {STATE_SIZE}')",
+            "    return numpy.einsum('...i,...ij->...j', w, jacobian(x, p))",
+            "",
+            "def parameter_jvp(x, p, v):",
+            "    v = numpy.asarray(v)",
+            "    if v.ndim < 1 or v.shape[-1] != PARAMETER_SIZE:",
+            "        raise ValueError(f'v must end with dimension {PARAMETER_SIZE}')",
+            "    return numpy.einsum('...ij,...j->...i', parameter_jacobian(x, p), v)",
+            "",
+        ]
+    )
     return "\n".join(lines)

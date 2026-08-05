@@ -28,11 +28,17 @@ Python 3.10 or later is required.
 pip install -e .
 ```
 
-For development:
+For tests, create an fpgen-only uv environment and run pytest:
 
 ```powershell
-pip install -e .[dev]
-python -m pytest tests -q
+uv sync --group test
+uv run pytest tests -q
+```
+
+Notebook dependencies are separate from the test environment:
+
+```powershell
+uv sync --group notebook
 ```
 
 ## Quick start
@@ -233,9 +239,9 @@ For positive-P, `alpha` and `beta` are independent. `layout="auto"` therefore
 selects a separate complex-symmetric state `S=<z z^T>` and never imposes the
 Wigner/P/Q conjugacy constraints.
 
-The older `to_covariance_dynamics()` and
-`to_augmented_second_moment_dynamics()` methods remain as compatibility
-wrappers around the unified API.
+`to_covariance_dynamics()` and `to_augmented_second_moment_dynamics()` remain
+available as explicit-layout convenience methods; new integrations should use
+the unified `to_second_moment_dynamics()` entry point.
 
 ## Symbolic scalar reduction
 
@@ -243,14 +249,19 @@ wrappers around the unified API.
 set of eliminated moments. For an explicitly chosen order parameter `q`:
 
 ```python
-candidates = dynamics.find_linear_reductions(
+search = dynamics.search_linear_reductions(
     retained_dimension=1,
-    equation_partitions="matching",
+    retained_ids=("r_diag_0",),
+    equation_partitions="all",
+    partition_limit=None,
+    materialization_limit=None,
+    return_limit=8,
 )
-candidate = next(c for c in candidates if c.retained_ids == ("r_diag_0",))
+candidate = search.candidates[0]
 plan = dynamics.linear_reduce(candidate=candidate)
 reduced = plan.materialize(method="fraction_free")
 
+search.manifest()              # coverage, work counts, and truncation reasons
 reduced.eliminated_solution
 reduced.reduced_residual       # dot(q) = G(q; p)
 reduced.numerators             # P(q; p)
@@ -274,16 +285,37 @@ For larger models, callers may keep the exact condensed representation
 `A y + b = 0` and the retained residual instead of expanding a very large
 rational expression.
 
+The search only describes regular affine-elimination branches. A
+`partition_limit` stops work before additional symbolic blocks are built;
+`return_limit` only limits the ranked result prefix. These cases are distinct
+in `ReductionSearchResult.coverage` and `truncation_reasons`.
+
 ## Downstream model interface
 
 The symbolic moment dynamics can be exported as a versioned
 `MomentDynamicsSpec`. It records state and parameter order, provenance,
-sparsity, and a reproducible fingerprint, and can generate a float64 NumPy
-reference model with batched RHS, Jacobians, JVPs, and VJPs.
+sparsity, matrix semantics, physical-domain hints, and a reproducible
+fingerprint. `compile_numpy()` returns batch-aware NumPy reference callables
+for RHS, Jacobians, JVPs, VJPs, parameter derivatives, and complex state-matrix
+reconstruction.
 
-Schema `1.1` reports `moment_layout` and explicit `normal`, `anomalous`, and
-`independent` state-index blocks. Downstream code therefore does not need to
-infer matrix semantics from display names.
+Moment API `1.0`, reduction API `1.0`, and model schema `2.0` report
+`moment_layout`, explicit
+`normal`, `anomalous`, and `independent` state-index blocks,
+`matrix_semantics`, `matrix_symmetry`, and `physical_domain_hint`. Downstream
+code therefore does not infer matrix semantics from display names.
+
+```python
+spec = dynamics.to_model_spec(name="two_mode_vdp")
+compiled = spec.compile_numpy()
+
+spec.state_index("r_diag_0")
+spec.parameter_index("gamma_a")
+spec.supports("state_matrix")
+R = compiled.state_matrix(x, p)
+F = compiled.rhs(x, p)
+J = compiled.jacobian(x, p)
+```
 
 This interface is intended for validation and handoff to numerical projects.
 It does not make numerical bifurcation solving part of `fpgen`, and the public

@@ -20,9 +20,8 @@ internal implementation detail.  Version 0.2.0 removed the legacy
 ``opr2fp``/``to_fp_normal_form`` string-parsing API.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
-from fpgen.derive import derive_kramers_moyal
 from fpgen.covariance import (
     AugmentedLangevinBlocks,
     AugmentedSecondMomentDynamics,
@@ -33,35 +32,40 @@ from fpgen.covariance import (
     LinearReductionPlan,
     MaterializedReduction,
     MomentLayoutDecision,
+    ReductionSearchResult,
 )
+from fpgen.derive import derive_kramers_moyal
 from fpgen.errors import (
     CovarianceClosureError,
     FPGenError,
     MasterEquationError,
     ModeError,
-    ProbabilityConservationError,
     NumericalModelError,
+    ProbabilityConservationError,
     ReductionError,
     RepresentationError,
 )
 from fpgen.master import LindbladChannel, LiouvillianTerm, MasterEquation
-from fpgen.operators import Op, boson_modes
-from fpgen.results import (
-    FokkerPlanckEquation,
-    KramersMoyalSeries,
-    LangevinEquation,
-)
 from fpgen.numerical import (
     AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION,
     INDEPENDENT_SECOND_MOMENT_LAYOUT_VERSION,
     MODEL_SCHEMA_VERSION,
+    MOMENT_DYNAMICS_API_VERSION,
+    REDUCTION_API_VERSION,
     STATE_LAYOUT_VERSION,
+    CompiledMomentDynamics,
     DerivationProvenance,
     MomentDynamicsSpec,
     NumericalModelSpec,
     ParameterSpec,
     SparsityPattern,
     StateVariableSpec,
+)
+from fpgen.operators import Op, boson_modes
+from fpgen.results import (
+    FokkerPlanckEquation,
+    KramersMoyalSeries,
+    LangevinEquation,
 )
 
 __all__ = [
@@ -81,9 +85,12 @@ __all__ = [
     "MomentLayoutDecision",
     "HermitianCovarianceJacobian",
     "LinearReductionCandidate",
+    "ReductionSearchResult",
     "LinearReductionPlan",
     "MaterializedReduction",
     "MODEL_SCHEMA_VERSION",
+    "MOMENT_DYNAMICS_API_VERSION",
+    "REDUCTION_API_VERSION",
     "STATE_LAYOUT_VERSION",
     "AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION",
     "INDEPENDENT_SECOND_MOMENT_LAYOUT_VERSION",
@@ -93,6 +100,7 @@ __all__ = [
     "DerivationProvenance",
     "NumericalModelSpec",
     "MomentDynamicsSpec",
+    "CompiledMomentDynamics",
     "FPGenError",
     "RepresentationError",
     "ModeError",

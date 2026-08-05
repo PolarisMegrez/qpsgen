@@ -14,8 +14,10 @@ Jacobian 和符号约化方程；定点搜索、延拓、分岔判定和 GPU 执
 - positive-P 使用 alpha/beta 独立的复对称二阶矩布局，不施加共轭约束。
 - 支持仿射平衡方程块的符号消元，并生成真正的约化动力学
   `dot(q)=G(q;p)=P(q;p)/Q(q;p)`、正则条件与重根条件。
-- `MomentDynamicsSpec` 提供版本化状态/参数布局、推导来源、稀疏结构、指纹及 NumPy
-  参考实现，供 `qphase` 等下游项目验证和接入。
+- moment API 1.0 / reduction API 1.0 / model schema 2.0 提供版本化状态/参数布局、矩阵语义、物理域提示、
+  推导来源、稀疏结构、指纹及 batch-aware NumPy callable bundle。
+- `search_linear_reductions()` 分别记录 partition、materialization 与 return 限制，返回
+  regular-only coverage、工作计数和拒绝原因，不再用返回数量冒充搜索预算。
 
 ## 后续优先事项
 
@@ -26,16 +28,19 @@ Jacobian 和符号约化方程；定点搜索、延拓、分岔判定和 GPU 执
 - 如引入 Gaussian/Wick 等近似闭合，必须使用独立 API、明确命名，并写入
   provenance，不能隐式启用。
 
-### 2. 稳定 qphase 交接规格
+### 2. 冻结 qphase 交接规格
 
 - 用 two-mode VDP、Kerr、cross-Kerr、three-mode Kerr 和线性增广 DPO 逐点核对
   RHS、state/parameter Jacobian、JVP/VJP 与批处理行为。
-- 根据实际接入反馈冻结 schema；冻结前不引入跨语言表达式 DAG。
+- 补齐 normal、augmented、independent 三种布局的 batch broadcasting 测试矩阵。
+- 在 qphase_cam 完成 fpgen 0.5 adapter 迁移后冻结 moment API 1.0；冻结前不引入
+  跨语言表达式 DAG。
 - 明确 qphase 返回结果的覆盖等级，避免把有限预算内未找到解解释为不存在解。
 
 ### 3. 提高符号消元的可扩展性
 
 - 为三模及更大系统增加结构剪枝，减少变量/方程分块的组合枚举成本。
+- 将当前 eager partition 枚举升级为 lazy planner，使预算在构造完整 SymPy block 前生效。
 - 提供不展开大行列式和大有理式的凝聚表示与符号秩条件。
 - 区分平衡点重根、零特征值缺陷和一般 Jacobian exceptional point；当前重根 API
   只覆盖正则标量约化分支。
