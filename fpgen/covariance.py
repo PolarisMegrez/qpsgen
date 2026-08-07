@@ -1012,6 +1012,7 @@ class CovarianceDynamics:
                 raise ReductionError(f"{name} must be positive when provided.")
         candidates = []
         rejected: Counter[str] = Counter()
+        rejected_partitions: list[RejectedPartition] = []
         examined_state_partitions = 0
         examined_equation_partitions = 0
         partition_budget_reached = False
@@ -1048,11 +1049,31 @@ class CovarianceDynamics:
                 residual = (h - A * y - b).applyfunc(sp.simplify)
                 if residual != sp.zeros(len(eliminated), 1):
                     rejected["non_affine_eliminated_block"] += 1
+                    rejected_partitions.append(
+                        RejectedPartition(
+                            reason="non_affine_eliminated_block",
+                            retained_indices=tuple(retained),
+                            retained_ids=tuple(
+                                self.state_spec[i].id for i in retained
+                            ),
+                            retained_equations=tuple(retained_equations),
+                        )
+                    )
                     continue
                 pattern = matrix_sparsity(A)
                 structural_rank = _structural_rank(pattern)
                 if structural_rank < len(eliminated):
                     rejected["structurally_rank_deficient"] += 1
+                    rejected_partitions.append(
+                        RejectedPartition(
+                            reason="structurally_rank_deficient",
+                            retained_indices=tuple(retained),
+                            retained_ids=tuple(
+                                self.state_spec[i].id for i in retained
+                            ),
+                            retained_equations=tuple(retained_equations),
+                        )
+                    )
                     continue
                 retained_symbols = tuple(self.coordinates[i] for i in retained)
                 retained_residual = tuple(self.rhs[i] for i in retained_equations)
@@ -1096,8 +1117,11 @@ class CovarianceDynamics:
         enriched = []
         materialization_attempts = 0
         materialization_skipped = 0
+        materialization_skipped_oversized = 0
+        materialization_failures: list[MaterializationFailure] = []
         for candidate in candidates:
             if len(candidate.eliminated_indices) > 3:
+                materialization_skipped_oversized += 1
                 enriched.append(candidate)
                 continue
             if (
@@ -1128,8 +1152,13 @@ class CovarianceDynamics:
                     reduced_degree=reduced_degree,
                     denominator_operation_count=denominator_cost,
                 )
-            except (ReductionError, sp.PolynomialError):
-                rejected["materialization_failed"] += 1
+            except (ReductionError, sp.PolynomialError) as exc:
+                materialization_failures.append(
+                    MaterializationFailure(
+                        chart_id=candidate.chart_id,
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                )
             enriched.append(candidate)
         candidates = enriched
         candidates.sort(
@@ -1172,6 +1201,9 @@ class CovarianceDynamics:
             returned_prefix=returned_prefix,
             truncation_reasons=tuple(truncation_reasons),
             rejected_reason_counts=tuple(sorted(rejected.items())),
+            rejected_partitions=tuple(rejected_partitions),
+            materialization_skipped_oversized=materialization_skipped_oversized,
+            materialization_failures=tuple(materialization_failures),
         )
 
     def linear_reduce(
@@ -1668,6 +1700,37 @@ class LinearReductionCandidate:
     denominator_operation_count: int | None
     diagnostics: tuple[str, ...]
 
+    @property
+    def chart_id(self) -> str:
+        """Stable serializable identifier for this equation/state partition."""
+        retained = ",".join(self.retained_ids)
+        equations = ",".join(str(item) for item in self.retained_equations)
+        return f"ret:{retained}|eq:{equations}"
+
+
+@dataclass(frozen=True)
+class RejectedPartition:
+    """One examined state/equation partition rejected during search."""
+
+    reason: str
+    retained_indices: tuple[int, ...]
+    retained_ids: tuple[str, ...]
+    retained_equations: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class MaterializationFailure:
+    """One candidate whose materialization attempt raised an error.
+
+    The candidate stays in ``candidates`` with unset enrichment fields;
+    this record keeps the failure auditable by ``chart_id``. A
+    materialization failure is a diagnostic, not a partition rejection,
+    so it is never counted in ``rejected_reason_counts``.
+    """
+
+    chart_id: str
+    error: str
+
 
 @dataclass(frozen=True)
 class ReductionSearchResult:
@@ -1687,6 +1750,9 @@ class ReductionSearchResult:
     returned_prefix: bool
     truncation_reasons: tuple[str, ...]
     rejected_reason_counts: tuple[tuple[str, int], ...]
+    rejected_partitions: tuple[RejectedPartition, ...] = ()
+    materialization_skipped_oversized: int = 0
+    materialization_failures: tuple[MaterializationFailure, ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -1714,6 +1780,9 @@ class ReductionSearchResult:
             "returned_prefix": self.returned_prefix,
             "truncation_reasons": list(self.truncation_reasons),
             "rejected_reason_counts": dict(self.rejected_reason_counts),
+            "rejected_partition_count": len(self.rejected_partitions),
+            "materialization_skipped_oversized": self.materialization_skipped_oversized,
+            "materialization_failure_count": len(self.materialization_failures),
         }
 
 

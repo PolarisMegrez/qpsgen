@@ -10,10 +10,13 @@ from fpgen import (
     MOMENT_DYNAMICS_API_VERSION,
     REDUCTION_API_VERSION,
     STATE_LAYOUT_VERSION,
+    CovarianceDynamics,
     LindbladChannel,
+    LinearReductionPlan,
     MasterEquation,
     NumericalModelError,
     ReductionError,
+    StateVariableSpec,
     boson_modes,
     derive_kramers_moyal,
 )
@@ -183,6 +186,123 @@ def test_linear_reduction_search_reports_real_work_limits():
             retained_dimension=1,
             retained_ids=("missing",),
         )
+
+
+def _synthetic_dynamics(rhs):
+    """Minimal synthetic flow over the symbols appearing in ``rhs``."""
+    coordinates = tuple(sorted(rhs.free_symbols, key=lambda symbol: symbol.name))
+    state_spec = tuple(
+        StateVariableSpec(
+            id=f"s{i}",
+            index=i,
+            symbol=symbol,
+            latex_name=str(symbol),
+            kind="synthetic",
+            matrix_index=(i, i),
+            mode_names=("a", "a"),
+        )
+        for i, symbol in enumerate(coordinates)
+    )
+    n = len(coordinates)
+    return CovarianceDynamics(
+        representation="wigner",
+        modes=(),
+        state_spec=state_spec,
+        covariance=None,
+        pair_indices=(),
+        pair_order=(),
+        hamiltonian=sp.zeros(n),
+        diffusion=sp.zeros(n),
+        rhs_matrix=rhs,
+        rhs=rhs,
+        langevin=None,
+    )
+
+
+def test_linear_reduction_candidate_chart_id_addresses_partitions():
+    dynamics, _ = _vdp_dynamics()
+    search = dynamics.search_linear_reductions(retained_dimension=1)
+    candidate = next(
+        item
+        for item in search.candidates
+        if item.retained_ids == ("r_diag_0",)
+        and item.retained_equations == item.retained_indices
+    )
+    assert candidate.chart_id == "ret:r_diag_0|eq:0"
+    json.dumps([item.chart_id for item in search.candidates])
+
+    x0, x1 = sp.symbols("x0 x1", real=True)
+    twin = _synthetic_dynamics(sp.Matrix([-x0 - x1, -x0 - x1]))
+    twin_search = twin.search_linear_reductions(retained_dimension=1)
+    chart_ids = [item.chart_id for item in twin_search.candidates]
+    assert len(chart_ids) == len(set(chart_ids)) == 4
+    per_state = {}
+    for item in twin_search.candidates:
+        per_state.setdefault(item.retained_ids, set()).add(item.chart_id)
+    assert per_state == {
+        ("s0",): {"ret:s0|eq:0", "ret:s0|eq:1"},
+        ("s1",): {"ret:s1|eq:0", "ret:s1|eq:1"},
+    }
+
+
+def test_linear_reduction_search_records_rejected_partition_details():
+    dynamics, _ = _vdp_dynamics()
+    search = dynamics.search_linear_reductions(retained_dimension=1)
+    assert len(search.rejected_partitions) == 12
+    assert {
+        entry.reason for entry in search.rejected_partitions
+    } == {"non_affine_eliminated_block"}
+    ids = tuple(item.id for item in dynamics.state_spec)
+    for entry in search.rejected_partitions:
+        assert entry.retained_ids == tuple(ids[i] for i in entry.retained_indices)
+        assert len(entry.retained_equations) == 1
+    manifest = search.manifest()
+    assert manifest["rejected_reason_counts"] == {"non_affine_eliminated_block": 12}
+    assert manifest["rejected_partition_count"] == len(search.rejected_partitions)
+    json.dumps(manifest)
+
+
+def test_linear_reduction_oversized_eliminated_skips_are_counted():
+    coordinates = sp.symbols("x0:5", real=True)
+    dynamics = _synthetic_dynamics(sp.Matrix([-symbol for symbol in coordinates]))
+    search = dynamics.search_linear_reductions(retained_dimension=1)
+    assert len(search.candidates) == 5
+    assert all(
+        len(candidate.eliminated_indices) == 4 for candidate in search.candidates
+    )
+    assert search.materialization_attempts == 0
+    assert search.materialization_skipped == 0
+    assert search.materialization_skipped_oversized == 5
+    assert all(candidate.reduced_degree is None for candidate in search.candidates)
+    assert search.rejected_reason_counts == (("structurally_rank_deficient", 20),)
+    assert len(search.rejected_partitions) == 20
+    manifest = search.manifest()
+    assert manifest["materialization_skipped_oversized"] == 5
+    assert manifest["rejected_partition_count"] == 20
+    json.dumps(manifest)
+
+
+def test_materialization_failure_is_diagnostic_not_rejection(monkeypatch):
+    dynamics, _ = _vdp_dynamics()
+
+    def _raise(self, *, method="fraction_free"):
+        raise ReductionError("forced for test")
+
+    monkeypatch.setattr(LinearReductionPlan, "materialize", _raise)
+    search = dynamics.search_linear_reductions(retained_dimension=1)
+    assert search.candidates
+    assert search.materialization_attempts > 0
+    assert "materialization_failed" not in dict(search.rejected_reason_counts)
+    assert len(search.materialization_failures) == search.materialization_attempts
+    assert all(candidate.reduced_degree is None for candidate in search.candidates)
+    for failure in search.materialization_failures:
+        assert failure.chart_id.startswith("ret:")
+        assert "forced for test" in failure.error
+    manifest = search.manifest()
+    assert manifest["materialization_failure_count"] == len(
+        search.materialization_failures
+    )
+    json.dumps(manifest)
 
 
 def test_moment_model_spec_manifest_and_numpy_batch_reference(tmp_path):

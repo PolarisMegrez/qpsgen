@@ -36,7 +36,7 @@ __all__ = [
 
 
 MOMENT_DYNAMICS_API_VERSION = "1.0"
-REDUCTION_API_VERSION = "1.0"
+REDUCTION_API_VERSION = "1.1"
 MODEL_SCHEMA_VERSION = "2.0"
 STATE_LAYOUT_VERSION = "hermitian-declared-index-v1"
 AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION = "hermitian-normal-anomalous-declared-index-v2"

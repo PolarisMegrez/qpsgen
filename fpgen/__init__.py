@@ -20,7 +20,7 @@ internal implementation detail.  Version 0.2.0 removed the legacy
 ``opr2fp``/``to_fp_normal_form`` string-parsing API.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 from fpgen.covariance import (
     AugmentedLangevinBlocks,
@@ -30,9 +30,11 @@ from fpgen.covariance import (
     IndependentSecondMomentDynamics,
     LinearReductionCandidate,
     LinearReductionPlan,
+    MaterializationFailure,
     MaterializedReduction,
     MomentLayoutDecision,
     ReductionSearchResult,
+    RejectedPartition,
 )
 from fpgen.derive import derive_kramers_moyal
 from fpgen.errors import (
@@ -86,7 +88,9 @@ __all__ = [
     "HermitianCovarianceJacobian",
     "LinearReductionCandidate",
     "ReductionSearchResult",
+    "RejectedPartition",
     "LinearReductionPlan",
+    "MaterializationFailure",
     "MaterializedReduction",
     "MODEL_SCHEMA_VERSION",
     "MOMENT_DYNAMICS_API_VERSION",
