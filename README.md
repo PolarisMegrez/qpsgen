@@ -28,19 +28,6 @@ Python 3.10 or later is required.
 pip install -e .
 ```
 
-For tests, create an fpgen-only uv environment and run pytest:
-
-```powershell
-uv sync --group test
-uv run pytest tests -q
-```
-
-Notebook dependencies are separate from the test environment:
-
-```powershell
-uv sync --group notebook
-```
-
 ## Quick start
 
 ```python
