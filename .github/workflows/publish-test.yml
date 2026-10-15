@@ -1,0 +1,94 @@
+name: Publish to TestPyPI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Validate distributions
+        run: uvx twine check dist/*
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-pypi-distributions
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/qpsgen
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: test-pypi-distributions
+          path: dist/
+
+      - name: Publish distributions with trusted publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  verify:
+    needs: publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Read package version
+        id: version
+        shell: bash
+        run: |
+          version=$(python -c \
+            "import pathlib, re; text=pathlib.Path('qpsgen/__init__.py').read_text(); print(re.search(r'__version__ = \"([^\"]+)\"', text).group(1))")
+          echo "value=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Install package from TestPyPI
+        shell: bash
+        run: |
+          python -m venv /tmp/qpsgen-test
+          for attempt in {1..10}; do
+            if /tmp/qpsgen-test/bin/python -m pip install \
+              --index-url https://test.pypi.org/simple/ \
+              --extra-index-url https://pypi.org/simple/ \
+              "qpsgen==${{ steps.version.outputs.value }}"; then
+              break
+            fi
+            if [ "$attempt" -eq 10 ]; then
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Verify installed package
+        shell: bash
+        run: |
+          /tmp/qpsgen-test/bin/python -c \
+            "import qpsgen; assert qpsgen.__version__ == '${{ steps.version.outputs.value }}'; print(qpsgen.__version__)"
