@@ -9,17 +9,17 @@ so a substitution ``c_mul * z_k + c_der * ∂_{z_l}`` yields
 ``K_0 = c_mul * z_k`` and ``K_{e_l} = -c_der``.
 """
 
-import sympy as sp
 import pytest
+import sympy as sp
 
-from fpgen import (
+from qpsgen import (
     LiouvillianTerm,
     MasterEquation,
     RepresentationError,
     boson_modes,
     derive_kramers_moyal,
 )
-from fpgen.representations import normalize_representation, phase_space_variables
+from qpsgen.representations import normalize_representation, phase_space_variables
 
 
 def single_mode_master(term):

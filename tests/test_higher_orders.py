@@ -2,14 +2,14 @@
 
 import sympy as sp
 
-from fpgen import (
-    LiouvillianTerm,
+from qpsgen import (
     LindbladChannel,
+    LiouvillianTerm,
     MasterEquation,
     boson_modes,
     derive_kramers_moyal,
 )
-from fpgen.diffop import NormalOp, diff_multi, normal_to_flux
+from qpsgen.diffop import NormalOp, diff_multi, normal_to_flux
 
 
 def test_three_body_loss_keeps_third_order_and_marks_fpe_approximate():

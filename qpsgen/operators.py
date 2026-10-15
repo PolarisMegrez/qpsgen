@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sympy as sp
 
-from fpgen.errors import MasterEquationError
+from qpsgen.errors import MasterEquationError
 
 __all__ = ["Op", "boson_modes"]
 

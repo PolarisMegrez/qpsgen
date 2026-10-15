@@ -1,9 +1,9 @@
 """Error paths: conservation, decomposability, representations, modes."""
 
-import sympy as sp
 import pytest
+import sympy as sp
 
-from fpgen import (
+from qpsgen import (
     LiouvillianTerm,
     MasterEquation,
     MasterEquationError,
@@ -13,7 +13,7 @@ from fpgen import (
     boson_modes,
     derive_kramers_moyal,
 )
-from fpgen.results import _extract_hamiltonian
+from qpsgen.results import _extract_hamiltonian
 
 
 def test_non_conserving_liouvillian_refuses_langevin():
@@ -34,9 +34,11 @@ def test_constant_drive_blocks_hamiltonian_extraction():
     eps = sp.symbols("epsilon")
     # Linear drive H = eps (a + a†): drift has a constant inhomogeneous term.
     master = MasterEquation(modes=[a], hamiltonian=eps * (a + a.dag))
-    lan = derive_kramers_moyal(master, representation="positive-p").truncate(
-        2
-    ).to_langevin()
+    lan = (
+        derive_kramers_moyal(master, representation="positive-p")
+        .truncate(2)
+        .to_langevin()
+    )
     assert lan.hamiltonian is None
     assert any("constant drive" in note for note in lan.diagnostics)
 
@@ -46,14 +48,14 @@ def test_unique_nonlinear_cross_term_is_factored_into_hamiltonian():
     H, diag = _extract_hamiltonian(sp.Matrix([be**2, al]), (al, be))
     assert diag == ()
     assert H == sp.Matrix([[0, sp.I * be], [sp.I, 0]])
-    assert sp.simplify(sp.Matrix([be**2, al]) + sp.I * H * sp.Matrix([al, be])) == sp.zeros(2, 1)
+    assert sp.simplify(
+        sp.Matrix([be**2, al]) + sp.I * H * sp.Matrix([al, be])
+    ) == sp.zeros(2, 1)
 
 
 def test_ambiguous_nonlinear_cross_term_blocks_hamiltonian_extraction():
     z = sp.symbols("z0:6", complex=True)
-    H, diag = _extract_hamiltonian(
-        sp.Matrix([z[1] * z[2], 0, 0, 0, 0, 0]), z
-    )
+    H, diag = _extract_hamiltonian(sp.Matrix([z[1] * z[2], 0, 0, 0, 0, 0]), z)
     assert H is None
     assert any("ambiguous Hamiltonian columns" in note for note in diag)
 

@@ -1,9 +1,9 @@
-"""Exception hierarchy for fpgen."""
+"""Exception hierarchy for qpsgen."""
 
 from __future__ import annotations
 
 __all__ = [
-    "FPGenError",
+    "QPSGenError",
     "RepresentationError",
     "ModeError",
     "MasterEquationError",
@@ -14,23 +14,23 @@ __all__ = [
 ]
 
 
-class FPGenError(Exception):
-    """Base class for all fpgen errors."""
+class QPSGenError(Exception):
+    """Base class for all qpsgen errors."""
 
 
-class RepresentationError(FPGenError):
+class RepresentationError(QPSGenError):
     """Unknown or unsupported phase-space representation."""
 
 
-class ModeError(FPGenError):
+class ModeError(QPSGenError):
     """An expression references a mode outside the declared mode order."""
 
 
-class MasterEquationError(FPGenError):
+class MasterEquationError(QPSGenError):
     """Malformed master equation input."""
 
 
-class ProbabilityConservationError(FPGenError):
+class ProbabilityConservationError(QPSGenError):
     """The zero-order Kramers–Moyal term is nonzero.
 
     Raised when converting to a Langevin equation although the underlying
@@ -39,13 +39,13 @@ class ProbabilityConservationError(FPGenError):
     """
 
 
-class CovarianceClosureError(FPGenError):
+class CovarianceClosureError(QPSGenError):
     """A requested second-moment layout or closure is not symbolically valid."""
 
 
-class NumericalModelError(FPGenError):
+class NumericalModelError(QPSGenError):
     """A symbolic dynamics object cannot satisfy the numerical API contract."""
 
 
-class ReductionError(FPGenError):
+class ReductionError(QPSGenError):
     """A requested structural reduction is invalid or cannot be materialized."""

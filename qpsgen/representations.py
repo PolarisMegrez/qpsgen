@@ -29,8 +29,8 @@ from __future__ import annotations
 
 import sympy as sp
 
-from fpgen.diffop import NormalOp
-from fpgen.errors import RepresentationError
+from qpsgen.diffop import NormalOp
+from qpsgen.errors import RepresentationError
 
 __all__ = [
     "REPRESENTATIONS",
@@ -94,7 +94,9 @@ def phase_space_variables(rep: str, modes: tuple[str, ...]) -> tuple[sp.Symbol, 
     )
 
 
-def conjugate_variable_map(variables: tuple[sp.Symbol, ...]) -> dict[sp.Symbol, sp.Symbol]:
+def conjugate_variable_map(
+    variables: tuple[sp.Symbol, ...],
+) -> dict[sp.Symbol, sp.Symbol]:
     """Map each augmented variable to its formal conjugate partner.
 
     For Cahill–Glauber ``alpha_i <-> abar_i``; for positive-P

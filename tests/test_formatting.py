@@ -2,7 +2,7 @@
 
 import sympy as sp
 
-from fpgen.results import KramersMoyalSeries
+from qpsgen.results import KramersMoyalSeries
 
 
 def test_kramers_moyal_latex_groups_nested_variable_subscripts():
@@ -21,9 +21,7 @@ def test_kramers_moyal_latex_groups_nested_variable_subscripts():
 
     assert r"K_{\partial_{\alpha_{a}}}" in latex
     assert r"K_{\partial_{\beta_{a}}}" in latex
-    assert (
-        r"K_{\partial_{\alpha_{a}} \partial_{\beta_{a}}^{2}}" in latex
-    )
+    assert r"K_{\partial_{\alpha_{a}} \partial_{\beta_{a}}^{2}}" in latex
     assert "∂_" not in latex
 
 

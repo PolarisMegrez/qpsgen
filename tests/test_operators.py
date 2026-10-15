@@ -1,9 +1,9 @@
 """Tests for the non-commutative operator algebra."""
 
-import sympy as sp
 import pytest
+import sympy as sp
 
-from fpgen import MasterEquationError, boson_modes
+from qpsgen import MasterEquationError, boson_modes
 
 
 def test_boson_modes_basic():

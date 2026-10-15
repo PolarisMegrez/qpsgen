@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import sympy as sp
 
-from fpgen.diffop import multi_index_order
-from fpgen.errors import CovarianceClosureError, ProbabilityConservationError
+from qpsgen.diffop import multi_index_order
+from qpsgen.errors import CovarianceClosureError, ProbabilityConservationError
 
 __all__ = [
     "KramersMoyalSeries",
@@ -33,10 +33,13 @@ MultiIndex = tuple[int, ...]
 # ----------------------------------------------------------------------
 def _latex_symbol(sym: sp.Symbol) -> str:
     name = sym.name
-    for prefix, tex in (("abar_", r"\bar{\alpha}_"), ("alpha_", r"\alpha_"),
-                        ("beta_", r"\beta_")):
+    for prefix, tex in (
+        ("abar_", r"\bar{\alpha}_"),
+        ("alpha_", r"\alpha_"),
+        ("beta_", r"\beta_"),
+    ):
         if name.startswith(prefix):
-            return tex + "{" + name[len(prefix):] + "}"
+            return tex + "{" + name[len(prefix) :] + "}"
     return name
 
 
@@ -87,7 +90,7 @@ class KramersMoyalSeries:
         Mapping multi-index ``mu -> K_mu`` (SymPy expressions); all orders
         are kept exactly as derived.
     master:
-        The originating :class:`fpgen.master.MasterEquation`.
+        The originating :class:`qpsgen.master.MasterEquation`.
     """
 
     def __init__(self, representation, variables, coefficients, master=None):
@@ -134,8 +137,10 @@ class KramersMoyalSeries:
             f"order={self.order})",
             "  z = (" + ", ".join(v.name for v in self.variables) + ")",
         ]
-        lines += ["  " + line for line in _format_coefficients(
-            self.coefficients, self.variables)]
+        lines += [
+            "  " + line
+            for line in _format_coefficients(self.coefficients, self.variables)
+        ]
         return "\n".join(lines)
 
     def to_latex(self) -> str:
@@ -143,8 +148,9 @@ class KramersMoyalSeries:
             r"\dot P = \sum_{\mu} \frac{(-1)^{|\mu|}}{\mu!}\,"
             r"\partial^{\mu}\left[K_{\mu}(z)\,P\right]"
         )
-        terms = r" \\ ".join(_format_coefficients(self.coefficients,
-                                                   self.variables, latex=True))
+        terms = r" \\ ".join(
+            _format_coefficients(self.coefficients, self.variables, latex=True)
+        )
         return head + r"\\[4pt]" + terms
 
     def _repr_latex_(self) -> str:
@@ -229,7 +235,6 @@ class FokkerPlanckEquation:
                 f"Kramers–Moyal coefficient is {residual}, so the master "
                 "equation does not conserve probability."
             )
-        d = len(self.variables)
         A = sp.Matrix(self.drift)
         G = self.diffusion
         B = _canonical_noise_factor(G)
@@ -255,12 +260,16 @@ class FokkerPlanckEquation:
             "  z = (" + ", ".join(v.name for v in self.variables) + ")",
             "  kept:",
         ]
-        lines += ["    " + line for line in _format_coefficients(
-            self.coefficients, self.variables)]
+        lines += [
+            "    " + line
+            for line in _format_coefficients(self.coefficients, self.variables)
+        ]
         if self.discarded:
             lines.append("  discarded by truncation:")
-            lines += ["    " + line for line in _format_coefficients(
-                self.discarded, self.variables)]
+            lines += [
+                "    " + line
+                for line in _format_coefficients(self.discarded, self.variables)
+            ]
         return "\n".join(lines)
 
     def to_latex(self) -> str:
@@ -277,8 +286,9 @@ class FokkerPlanckEquation:
                 + str(self.original_max_order)
                 + r"\text{)}"
             )
-        terms = r" \\ ".join(_format_coefficients(self.coefficients,
-                                                   self.variables, latex=True))
+        terms = r" \\ ".join(
+            _format_coefficients(self.coefficients, self.variables, latex=True)
+        )
         return head + r"\\[4pt]" + terms
 
     def _repr_latex_(self) -> str:
@@ -411,7 +421,7 @@ class LangevinEquation:
         By project convention, omitted external-symbol assumptions are real.
         Pass ``real_parameters=()`` to preserve genuinely complex parameters.
         """
-        from fpgen.covariance import AugmentedLangevinBlocks
+        from qpsgen.covariance import AugmentedLangevinBlocks
 
         return AugmentedLangevinBlocks.from_langevin(
             self, real_parameters=real_parameters
@@ -425,7 +435,7 @@ class LangevinEquation:
         then imaginary parts.  Raises ``CovarianceClosureError`` when the
         normal covariance is not closed at second order.
         """
-        from fpgen.covariance import HermitianCovarianceJacobian
+        from qpsgen.covariance import HermitianCovarianceJacobian
 
         return HermitianCovarianceJacobian.from_langevin(self)
 
@@ -462,16 +472,14 @@ class LangevinEquation:
         ``closure='factorized_bilinear'`` explicitly replaces quadratic
         phase-space factors in ``H`` and ``D`` by second moments.
         """
-        from fpgen.covariance import (
+        from qpsgen.covariance import (
             AugmentedSecondMomentDynamics,
             CovarianceDynamics,
             MomentLayoutDecision,
         )
 
         normalized_layout = str(layout).strip().lower()
-        if normalized_layout not in {
-            "auto", "normal", "augmented", "independent"
-        }:
+        if normalized_layout not in {"auto", "normal", "augmented", "independent"}:
             raise CovarianceClosureError(
                 "layout must be 'auto', 'normal', 'augmented', or 'independent'."
             )
@@ -481,7 +489,7 @@ class LangevinEquation:
                     "positive-P partners are independent; request layout='independent' "
                     "or layout='auto'."
                 )
-            from fpgen.covariance import IndependentSecondMomentDynamics
+            from qpsgen.covariance import IndependentSecondMomentDynamics
 
             independent = IndependentSecondMomentDynamics.from_langevin(
                 self,
@@ -520,9 +528,7 @@ class LangevinEquation:
                     selected_layout="normal",
                     normal_autonomous=True,
                     projection_residual=sp.zeros(len(normal.modes)),
-                    reasons=(
-                        "V is zero and H/D close exclusively on normal moments",
-                    ),
+                    reasons=("V is zero and H/D close exclusively on normal moments",),
                 )
                 return normal
             except CovarianceClosureError as exc:
@@ -536,20 +542,14 @@ class LangevinEquation:
         if normalized_layout == "augmented":
             return augmented
 
-        decision = augmented.normal_layout_decision(
-            requested_layout=normalized_layout
-        )
+        decision = augmented.normal_layout_decision(requested_layout=normalized_layout)
         if decision.normal_autonomous:
-            return augmented.project_normal(
-                requested_layout=normalized_layout
-            )
+            return augmented.project_normal(requested_layout=normalized_layout)
         if normalized_layout == "normal":
             prefix = (
-                "The anomalous Hamiltonian prevents a closed normal moment "
-                "matrix: "
-                if augmented.pairing_hamiltonian != sp.zeros(
-                    augmented.pairing_hamiltonian.rows
-                )
+                "The anomalous Hamiltonian prevents a closed normal moment matrix: "
+                if augmented.pairing_hamiltonian
+                != sp.zeros(augmented.pairing_hamiltonian.rows)
                 else "The normal moment matrix is not autonomous: "
             )
             raise CovarianceClosureError(
@@ -609,7 +609,9 @@ class LangevinEquation:
             lines.append("  D = <xi xi†> = B B† (canonical realization) =")
         else:
             lines.append("  M = <xi xi^T> (direct FPE block) =")
-            lines += ["    " + row for row in str(self.anomalous_correlation).splitlines()]
+            lines += [
+                "    " + row for row in str(self.anomalous_correlation).splitlines()
+            ]
             lines.append("  D = <xi xi†> (direct FPE block) =")
         lines += ["    " + row for row in str(self.normal_correlation).splitlines()]
         if self.hamiltonian is not None:
@@ -635,15 +637,19 @@ class LangevinEquation:
                 + sp.latex(self.normal_correlation)
             )
         else:
-            parts.extend([
-                r"M = \langle\xi\,\xi^{T}\rangle = "
-                + sp.latex(self.anomalous_correlation),
-                r"D = \langle\xi\,\xi^{\dagger}\rangle = "
-                + sp.latex(self.normal_correlation),
-            ])
+            parts.extend(
+                [
+                    r"M = \langle\xi\,\xi^{T}\rangle = "
+                    + sp.latex(self.anomalous_correlation),
+                    r"D = \langle\xi\,\xi^{\dagger}\rangle = "
+                    + sp.latex(self.normal_correlation),
+                ]
+            )
         if self.hamiltonian is not None:
-            parts.append(r"A = -i\,H_{\mathrm{eff}}(z)\,z,\quad H_{\mathrm{eff}} = "
-                         + sp.latex(self.hamiltonian))
+            parts.append(
+                r"A = -i\,H_{\mathrm{eff}}(z)\,z,\quad H_{\mathrm{eff}} = "
+                + sp.latex(self.hamiltonian)
+            )
         else:
             parts.append(
                 r"H_{\mathrm{eff}} = \varnothing\ \text{(drift not decomposable)}"
@@ -714,8 +720,7 @@ def _extract_hamiltonian(
         except sp.PolynomialError:
             ok = False
             diagnostics.append(
-                f"A[{i}] = {expanded} is not a polynomial in z; cannot "
-                "extract H_eff."
+                f"A[{i}] = {expanded} is not a polynomial in z; cannot extract H_eff."
             )
             continue
         for exp, coeff in poly.terms():

@@ -1,8 +1,11 @@
-# fpgen — Kramers–Moyal / Fokker–Planck / Langevin toolkit
+# qpsgen - quantum phase-space generator
 
-`fpgen` derives phase-space dynamics from a structured bosonic master
-equation using exact SymPy algebra. It supports the Wigner, Glauber-Sudarshan
-P, Husimi Q, and positive-P representations.
+`qpsgen` derives phase-space dynamics from structured open-system master
+equations using exact SymPy algebra. The current frontend supports bosonic
+Wigner, Glauber-Sudarshan P, Husimi Q, and positive-P representations. Its
+long-term architecture is intended to admit additional operator algebras and
+phase-space correspondences without changing the downstream dynamics
+contracts.
 
 **Authors: Yu Xue-Hao and Qiao Cong-Feng (University of Chinese Academy of Sciences, UCAS)**
 
@@ -25,14 +28,22 @@ belong to downstream solvers such as `qphase`.
 Python 3.10 or later is required.
 
 ```powershell
-pip install -e .
+pip install qpsgen
+```
+
+For an editable development installation with the test toolchain:
+
+```powershell
+git clone https://github.com/PolarisMegrez/qpsgen.git
+cd qpsgen
+uv sync --group test
 ```
 
 ## Quick start
 
 ```python
 import sympy as sp
-from fpgen import (
+from qpsgen import (
     LindbladChannel,
     MasterEquation,
     boson_modes,
@@ -59,7 +70,7 @@ powers, and `.dag`.
 
 ## Kramers-Moyal convention
 
-`fpgen` stores the flux-form coefficients `K_mu(z)` in
+`qpsgen` stores the flux-form coefficients `K_mu(z)` in
 
 ```text
 dP/dt = sum_mu (-1)^|mu| / mu! * partial^mu [K_mu(z) P].
@@ -93,7 +104,7 @@ The Fokker-Planck equation defines the Ito equation
 dot(z) = A(z) + xi,       <xi xi^T> = G_aug.
 ```
 
-When the drift admits a canonical factorization, `fpgen` also reports
+When the drift admits a canonical factorization, `qpsgen` also reports
 `A(z) = -i H_eff(z) z`. Constant drives or ambiguous factorizations leave
 `langevin.hamiltonian` unset and provide a diagnostic instead.
 
@@ -185,7 +196,7 @@ dot(R) = -i(HR - RH^dagger) + D.
 ```
 
 The fast proof checks `V=0` and verifies that every phase-space factor needed
-by `H` and `D` maps exclusively to `R`. If that proof is unavailable, fpgen
+by `H` and `D` maps exclusively to `R`. If that proof is unavailable, qpsgen
 constructs the full `R/C` equations and checks their actual dependencies.
 `layout="normal"` raises `CovarianceClosureError` rather than discarding a
 required anomalous state.
@@ -286,7 +297,7 @@ fingerprint. `compile_numpy()` returns batch-aware NumPy reference callables
 for RHS, Jacobians, JVPs, VJPs, parameter derivatives, and complex state-matrix
 reconstruction.
 
-Moment API `1.0`, reduction API `1.0`, and model schema `2.0` report
+Moment API `1.0`, reduction API `1.1`, and model schema `2.0` report
 `moment_layout`, explicit
 `normal`, `anomalous`, and `independent` state-index blocks,
 `matrix_semantics`, `matrix_symmetry`, and `physical_domain_hint`. Downstream
@@ -305,7 +316,7 @@ J = compiled.jacobian(x, p)
 ```
 
 This interface is intended for validation and handoff to numerical projects.
-It does not make numerical bifurcation solving part of `fpgen`, and the public
+It does not make numerical bifurcation solving part of `qpsgen`, and the public
 notebooks do not run downstream solvers.
 
 ## Examples

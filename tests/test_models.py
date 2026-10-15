@@ -3,7 +3,7 @@ multimode linear coupling."""
 
 import sympy as sp
 
-from fpgen import (
+from qpsgen import (
     LindbladChannel,
     MasterEquation,
     boson_modes,
@@ -61,8 +61,7 @@ def test_kerr_positive_p():
     assert sp.simplify(B * B.T - G) == sp.zeros(2)
     assert lan.anomalous_correlation == G
     assert (
-        lan.normal_correlation
-        - (B * B.conjugate().T).applyfunc(sp.simplify)
+        lan.normal_correlation - (B * B.conjugate().T).applyfunc(sp.simplify)
     ).applyfunc(sp.simplify) == sp.zeros(2)
     assert lan.physical_hamiltonian is None
 
@@ -72,9 +71,11 @@ def test_quadratic_parametric_drive_cross_hamiltonian():
     eps = sp.symbols("epsilon")
     H = eps / 2 * a.dag**2 + sp.conjugate(eps) / 2 * a**2
     master = MasterEquation(modes=[a], hamiltonian=H)
-    lan = derive_kramers_moyal(master, representation="positive-p").truncate(
-        2
-    ).to_langevin()
+    lan = (
+        derive_kramers_moyal(master, representation="positive-p")
+        .truncate(2)
+        .to_langevin()
+    )
     H_eff = lan.hamiltonian
     assert H_eff is not None
     # Drift: A_alpha = -i eps beta, A_beta = i conj(eps) alpha.
@@ -95,9 +96,11 @@ def test_two_mode_linear_coupling_cross_hamiltonian():
     g = sp.symbols("g")
     H = g * a.dag * b + sp.conjugate(g) * a * b.dag
     master = MasterEquation(modes=[a, b], hamiltonian=H)
-    lan = derive_kramers_moyal(master, representation="positive-p").truncate(
-        2
-    ).to_langevin()
+    lan = (
+        derive_kramers_moyal(master, representation="positive-p")
+        .truncate(2)
+        .to_langevin()
+    )
     alpha_a, alpha_b, beta_a, beta_b = lan.variables
     A = lan.drift
     assert sp.simplify(A[0] - (-sp.I * g * alpha_b)) == 0
@@ -122,9 +125,7 @@ def test_wigner_van_der_pol_physical_hamiltonian_and_diffusion_blocks():
     master = MasterEquation(
         modes=[a, b],
         hamiltonian=(
-            omega_a * a.dag * a
-            + omega_b * b.dag * b
-            + g * (a.dag * b + a * b.dag)
+            omega_a * a.dag * a + omega_b * b.dag * b + g * (a.dag * b + a * b.dag)
         ),
         channels=[
             LindbladChannel(jump=a.dag, rate=gamma_a),
@@ -134,16 +135,16 @@ def test_wigner_van_der_pol_physical_hamiltonian_and_diffusion_blocks():
     )
     lan = derive_kramers_moyal(master, "wigner").truncate(2).to_langevin()
     alpha_a, _, abar_a, _ = lan.variables
-    expected_h = sp.Matrix([
+    expected_h = sp.Matrix(
         [
-            omega_a + sp.I * (gamma_a / 2 + Gamma * (1 - abar_a * alpha_a)),
-            g,
-        ],
-        [g, omega_b - sp.I * gamma_b / 2],
-    ])
-    expected_d = sp.diag(
-        gamma_a / 2 + Gamma * (2 * abar_a * alpha_a - 1), gamma_b / 2
+            [
+                omega_a + sp.I * (gamma_a / 2 + Gamma * (1 - abar_a * alpha_a)),
+                g,
+            ],
+            [g, omega_b - sp.I * gamma_b / 2],
+        ]
     )
+    expected_d = sp.diag(gamma_a / 2 + Gamma * (2 * abar_a * alpha_a - 1), gamma_b / 2)
     assert (lan.physical_hamiltonian - expected_h).applyfunc(sp.simplify) == sp.zeros(2)
     assert lan.anomalous_hamiltonian == sp.zeros(2)
     assert (lan.normal_correlation - expected_d).applyfunc(sp.simplify) == sp.zeros(2)
@@ -170,10 +171,12 @@ def test_wigner_pair_hopping_non_diagonal_factorization():
     )
     lan = derive_kramers_moyal(master, "wigner").truncate(2).to_langevin()
     alpha_a, alpha_b, abar_a, abar_b = lan.variables
-    expected_h = sp.Matrix([
-        [omega_a + sp.I * gamma_a / 2, g + 2 * k * abar_a * alpha_b],
-        [g + 2 * k * abar_b * alpha_a, omega_b - sp.I * gamma_b / 2],
-    ])
+    expected_h = sp.Matrix(
+        [
+            [omega_a + sp.I * gamma_a / 2, g + 2 * k * abar_a * alpha_b],
+            [g + 2 * k * abar_b * alpha_a, omega_b - sp.I * gamma_b / 2],
+        ]
+    )
     assert (lan.physical_hamiltonian - expected_h).applyfunc(sp.simplify) == sp.zeros(2)
     assert lan.normal_correlation == sp.diag(gamma_a / 2, gamma_b / 2)
     assert lan.anomalous_correlation == sp.zeros(2)

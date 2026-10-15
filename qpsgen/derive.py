@@ -23,19 +23,19 @@ from __future__ import annotations
 
 import sympy as sp
 
-from fpgen.diffop import (
+from qpsgen.diffop import (
     NormalOp,
     multi_index_factorial,
     multi_index_order,
     normal_to_flux,
 )
-from fpgen.master import MasterEquation
-from fpgen.representations import (
+from qpsgen.master import MasterEquation
+from qpsgen.representations import (
     normalize_representation,
     phase_space_variables,
     substitution,
 )
-from fpgen.results import KramersMoyalSeries
+from qpsgen.results import KramersMoyalSeries
 
 __all__ = ["derive_kramers_moyal"]
 

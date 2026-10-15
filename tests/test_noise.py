@@ -2,7 +2,7 @@
 
 import sympy as sp
 
-from fpgen.results import _canonical_noise_factor
+from qpsgen.results import _canonical_noise_factor
 
 
 def check_factor(G):
@@ -65,8 +65,6 @@ def test_correlation_definitions():
     m = B.cols
     # M_ij = sum_k B_ik B_jk <eta_k^2> = (B B^T)_ij; likewise D with |B_ik|^2.
     M = sum((B[:, k] * B[:, k].T for k in range(m)), sp.zeros(2))
-    D = sum(
-        (B[:, k] * B[:, k].conjugate().T for k in range(m)), sp.zeros(2)
-    )
+    D = sum((B[:, k] * B[:, k].conjugate().T for k in range(m)), sp.zeros(2))
     assert sp.simplify(M - G) == sp.zeros(2)
     assert sp.simplify(D - B * B.conjugate().T) == sp.zeros(2)

@@ -70,7 +70,9 @@ def _sub(mu: MultiIndex, nu: MultiIndex) -> MultiIndex:
     return tuple(m - n for m, n in zip(mu, nu, strict=True))
 
 
-def diff_multi(expr: sp.Expr, variables: tuple[sp.Symbol, ...], nu: MultiIndex) -> sp.Expr:
+def diff_multi(
+    expr: sp.Expr, variables: tuple[sp.Symbol, ...], nu: MultiIndex
+) -> sp.Expr:
     """Apply the mixed partial derivative ``∂^nu`` to ``expr``."""
     for var, n in zip(variables, nu, strict=True):
         if n:
@@ -129,7 +131,9 @@ class NormalOp:
 
     def scale(self, factor) -> NormalOp:
         factor = sp.sympify(factor)
-        return NormalOp(self.variables, {mu: factor * c for mu, c in self.terms.items()})
+        return NormalOp(
+            self.variables, {mu: factor * c for mu, c in self.terms.items()}
+        )
 
     def __mul__(self, other: NormalOp) -> NormalOp:
         """Operator composition ``self ∘ other`` (``other`` acts first)."""

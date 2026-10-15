@@ -1,13 +1,13 @@
-"""fpgen: structured Kramers–Moyal / Fokker–Planck / Langevin toolkit.
+"""qpsgen: structured Kramers–Moyal / Fokker–Planck / Langevin toolkit.
 
-Given a structured quantum master equation, fpgen derives the corresponding
+Given a structured quantum master equation, qpsgen derives the corresponding
 Kramers–Moyal series in the Wigner, P, Q or positive-P phase-space
 representation, truncates it to a Fokker–Planck equation, and converts that
 to an Itô c-number Langevin equation on the augmented complex state.
 
 Typical usage::
 
-    from fpgen import boson_modes, MasterEquation, LindbladChannel, derive_kramers_moyal
+    from qpsgen import boson_modes, MasterEquation, LindbladChannel, derive_kramers_moyal
 
     a, = boson_modes("a")
     master = MasterEquation(modes=[a], hamiltonian=..., channels=[...])
@@ -22,7 +22,7 @@ internal implementation detail.  Version 0.2.0 removed the legacy
 
 __version__ = "0.5.1"
 
-from fpgen.covariance import (
+from qpsgen.covariance import (
     AugmentedLangevinBlocks,
     AugmentedSecondMomentDynamics,
     CovarianceDynamics,
@@ -36,19 +36,19 @@ from fpgen.covariance import (
     ReductionSearchResult,
     RejectedPartition,
 )
-from fpgen.derive import derive_kramers_moyal
-from fpgen.errors import (
+from qpsgen.derive import derive_kramers_moyal
+from qpsgen.errors import (
     CovarianceClosureError,
-    FPGenError,
     MasterEquationError,
     ModeError,
     NumericalModelError,
     ProbabilityConservationError,
+    QPSGenError,
     ReductionError,
     RepresentationError,
 )
-from fpgen.master import LindbladChannel, LiouvillianTerm, MasterEquation
-from fpgen.numerical import (
+from qpsgen.master import LindbladChannel, LiouvillianTerm, MasterEquation
+from qpsgen.numerical import (
     AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION,
     INDEPENDENT_SECOND_MOMENT_LAYOUT_VERSION,
     MODEL_SCHEMA_VERSION,
@@ -63,8 +63,8 @@ from fpgen.numerical import (
     SparsityPattern,
     StateVariableSpec,
 )
-from fpgen.operators import Op, boson_modes
-from fpgen.results import (
+from qpsgen.operators import Op, boson_modes
+from qpsgen.results import (
     FokkerPlanckEquation,
     KramersMoyalSeries,
     LangevinEquation,
@@ -105,7 +105,7 @@ __all__ = [
     "NumericalModelSpec",
     "MomentDynamicsSpec",
     "CompiledMomentDynamics",
-    "FPGenError",
+    "QPSGenError",
     "RepresentationError",
     "ModeError",
     "MasterEquationError",

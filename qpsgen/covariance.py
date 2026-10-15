@@ -21,12 +21,12 @@ from itertools import combinations
 
 import sympy as sp
 
-from fpgen.errors import (
+from qpsgen.errors import (
     CovarianceClosureError,
     NumericalModelError,
     ReductionError,
 )
-from fpgen.numerical import (
+from qpsgen.numerical import (
     AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION,
     INDEPENDENT_SECOND_MOMENT_LAYOUT_VERSION,
     MODEL_SCHEMA_VERSION,
@@ -40,7 +40,7 @@ from fpgen.numerical import (
     make_fingerprint,
     matrix_sparsity,
 )
-from fpgen.representations import conjugate_variable_map
+from qpsgen.representations import conjugate_variable_map
 
 __all__ = [
     "AugmentedLangevinBlocks",
@@ -476,7 +476,7 @@ def _degree_estimate(expressions, retained_symbols) -> int | None:
 class AugmentedLangevinBlocks:
     """Conjugate-structured drift and noise blocks on ``z=(alpha, alpha*)``.
 
-    External symbols are treated as real by default, matching fpgen's model
+    External symbols are treated as real by default, matching qpsgen's model
     convention. Pass an explicit ``real_parameters`` iterable to restrict
     that assumption when inspecting genuinely complex symbolic parameters.
     """
@@ -1053,9 +1053,7 @@ class CovarianceDynamics:
                         RejectedPartition(
                             reason="non_affine_eliminated_block",
                             retained_indices=tuple(retained),
-                            retained_ids=tuple(
-                                self.state_spec[i].id for i in retained
-                            ),
+                            retained_ids=tuple(self.state_spec[i].id for i in retained),
                             retained_equations=tuple(retained_equations),
                         )
                     )
@@ -1068,9 +1066,7 @@ class CovarianceDynamics:
                         RejectedPartition(
                             reason="structurally_rank_deficient",
                             retained_indices=tuple(retained),
-                            retained_ids=tuple(
-                                self.state_spec[i].id for i in retained
-                            ),
+                            retained_ids=tuple(self.state_spec[i].id for i in retained),
                             retained_equations=tuple(retained_equations),
                         )
                     )
@@ -1909,7 +1905,7 @@ class MaterializedReduction:
     full_residual: sp.Matrix
 
     def reconstruct_full_state(self) -> sp.Matrix:
-        """Reconstruct the full state in the canonical fpgen ordering."""
+        """Reconstruct the full state in the canonical qpsgen ordering."""
         values = {}
         values.update(
             zip(
@@ -1981,7 +1977,10 @@ class HermitianCovarianceJacobian:
         substitutions = dict(
             zip(dynamics.coordinates, display_coordinates, strict=True)
         )
-        convert = lambda matrix: sp.Matrix(matrix).xreplace(substitutions)
+
+        def convert(matrix):
+            return sp.Matrix(matrix).xreplace(substitutions)
+
         return cls(
             modes=dynamics.modes,
             covariance=convert(dynamics.covariance),

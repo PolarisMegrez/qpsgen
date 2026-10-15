@@ -2,7 +2,7 @@
 
 import sympy as sp
 
-from fpgen import (
+from qpsgen import (
     LindbladChannel,
     MasterEquation,
     boson_modes,
@@ -13,9 +13,7 @@ from fpgen import (
 def test_wigner_damping_diffusion_block():
     (a,) = boson_modes("a")
     kappa = sp.symbols("kappa", positive=True)
-    master = MasterEquation(
-        modes=[a], channels=[LindbladChannel(jump=a, rate=kappa)]
-    )
+    master = MasterEquation(modes=[a], channels=[LindbladChannel(jump=a, rate=kappa)])
     km = derive_kramers_moyal(master, representation="wigner")
     fpe = km.truncate(2)
     assert fpe.is_exact

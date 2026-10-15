@@ -20,8 +20,8 @@ from dataclasses import dataclass, field
 
 import sympy as sp
 
-from fpgen.errors import MasterEquationError, ModeError
-from fpgen.operators import Op
+from qpsgen.errors import MasterEquationError, ModeError
+from qpsgen.operators import Op
 
 __all__ = ["LindbladChannel", "LiouvillianTerm", "MasterEquation"]
 
@@ -59,7 +59,7 @@ class MasterEquation:
     Parameters
     ----------
     modes:
-        The annihilation operators created by :func:`fpgen.boson_modes`, in
+        The annihilation operators created by :func:`qpsgen.boson_modes`, in
         the desired global order.  This order defines the phase-space
         variable ordering everywhere downstream.
     hamiltonian, channels, extra_terms:
@@ -134,7 +134,9 @@ class MasterEquation:
             for coeff, factors in self.hamiltonian.terms:
                 yield LiouvillianTerm(-sp.I * coeff, Op(((sp.Integer(1), factors),)))
             for coeff, factors in self.hamiltonian.terms:
-                yield LiouvillianTerm(sp.I * coeff, right=Op(((sp.Integer(1), factors),)))
+                yield LiouvillianTerm(
+                    sp.I * coeff, right=Op(((sp.Integer(1), factors),))
+                )
         for ch in self.channels:
             L, gamma = ch.jump, ch.rate
             # gamma * L rho L†

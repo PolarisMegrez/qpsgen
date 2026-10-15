@@ -5,7 +5,7 @@ import json
 import pytest
 import sympy as sp
 
-from fpgen import (
+from qpsgen import (
     MODEL_SCHEMA_VERSION,
     MOMENT_DYNAMICS_API_VERSION,
     REDUCTION_API_VERSION,
@@ -249,9 +249,9 @@ def test_linear_reduction_search_records_rejected_partition_details():
     dynamics, _ = _vdp_dynamics()
     search = dynamics.search_linear_reductions(retained_dimension=1)
     assert len(search.rejected_partitions) == 12
-    assert {
-        entry.reason for entry in search.rejected_partitions
-    } == {"non_affine_eliminated_block"}
+    assert {entry.reason for entry in search.rejected_partitions} == {
+        "non_affine_eliminated_block"
+    }
     ids = tuple(item.id for item in dynamics.state_spec)
     for entry in search.rejected_partitions:
         assert entry.retained_ids == tuple(ids[i] for i in entry.retained_indices)

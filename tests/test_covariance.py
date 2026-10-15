@@ -3,7 +3,7 @@
 import pytest
 import sympy as sp
 
-from fpgen import (
+from qpsgen import (
     AUGMENTED_SECOND_MOMENT_LAYOUT_VERSION,
     INDEPENDENT_SECOND_MOMENT_LAYOUT_VERSION,
     AugmentedSecondMomentDynamics,
